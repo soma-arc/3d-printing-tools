@@ -1,6 +1,7 @@
 #include <iostream>
 #include <vector>
-#include<algorithm>
+#include <algorithm>
+#include <cmath>
 
 #define TINYOBJLOADER_IMPLEMENTATION
 #include "./tiny_obj_loader.h"
@@ -52,7 +53,9 @@ public:
         return (*this);
     }
     Vec3 operator/(const Vec3 &nv) const {
-        return Vec3(x() / nv.x(), y() / nv.y(), z() / nv.z());
+        return Vec3(x() / nv.x(),
+                    y() / nv.y(),
+                    z() / nv.z());
     }
     Vec3 operator-() const { return Vec3(-x(), -y(), -z()); }
     T operator[](int i) const { return v[i]; }
@@ -238,13 +241,14 @@ int IIS(Vec3f pos,
         if (inFund) break;
     }
 
-    if(distInfSphairahedron(pos,
-                            spheres,
-                            planes,
-                            divPlane) / dr <= 0.) {
-        return invNum;
-    }
-    return -1;
+    return invNum;
+    // if(distInfSphairahedron(pos,
+    //                         spheres,
+    //                         planes,
+    //                         divPlane) / dr <= 0.01) {
+    //     return invNum;
+    // }
+    // return -1;
 }
 
 const Vec3f offset(0.5, 0, std::sqrt(3.) * 0.5);
@@ -286,12 +290,18 @@ const Plane divPlane(Vec3f(0.9999999999999948,
                            0.2887378893554992));
 
 inline Vec3f computeColor (Vec3f pos) {
-    // int invNum = IIS(pos, spheres, planes, divPlane);
-    // if (invNum == -1) {
-    //     return Vec3f(0, 0, 0);
-    // }
-    // return hsv2rgb((-0.13 + float(invNum) * 0.01 + pos.y()), 1., 1.);
-    return hsv2rgb((-0.13 + pos.y()), 1., 1.);
+    pos += Vec3f(2, -2, 2);
+    float sink = std::sin(M_PI / 3.);
+    float cosk = std::cos(M_PI / 3.);
+    pos = Vec3f(pos.x() * cosk - pos.z() * sink,
+                pos.y(),
+                pos.x() * sink + pos.z() * cosk);
+    int invNum = IIS(pos, spheres, planes, divPlane);
+    if (invNum == -1) {
+        return Vec3f(0, 0, 0);
+    }
+    return hsv2rgb((float(invNum) * 0.01), 1., 1.);
+//    return hsv2rgb((-0.13 + pos.y()), 1., 1.);
 }
 
 int main(int argc, char** argv) {
@@ -300,7 +310,7 @@ int main(int argc, char** argv) {
         return 0;
     }
 
-    const int texSize = 2048;
+    const int texSize = 4096;
     const float uvStep = 1.0f / texSize / 2.f;
     printf("texture size ... %d x %d\n", texSize, texSize);
     printf("uv step ... %f\n", uvStep);
@@ -320,6 +330,11 @@ int main(int argc, char** argv) {
 
     if (!ret) {
         std::cerr << "Failed to load " << argv[1] << std::endl;
+        exit(1);
+    }
+
+    if (attrib.texcoords.size() == 0) {
+        std::cerr << "This object has no texture coordinates."  << std::endl;
         exit(1);
     }
 
@@ -389,8 +404,8 @@ int main(int argc, char** argv) {
                     Vec3f e2 = faceUv[0] - faceUv[2];
                     float pv = vlength(vcross(e2, uv - faceUv[2])) / area2;
                     float pw = 1.f - pu - pv;
-                    if(pu > 1.1f || pv > 1.1f || pw > 1.1f ||
-                       pu < -0.1f || pv < -0.1f || pw < -0.1f) {
+                    if(pu > 1.01f || pv > 1.01f || pw > 1.01f ||
+                       pu < -0.01f || pv < -0.01f || pw < -0.01f) {
                         // Outside of the face
                         // printf("barycentric coordinates (%f, %f, %f)\n", pu, pv, pw);
                     } else
