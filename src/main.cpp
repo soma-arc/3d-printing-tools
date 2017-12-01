@@ -1,5 +1,6 @@
 #include <iostream>
 #include <vector>
+#include<algorithm>
 
 #define TINYOBJLOADER_IMPLEMENTATION
 #include "./tiny_obj_loader.h"
@@ -102,7 +103,196 @@ inline T vdot(Vec3<T> a, Vec3<T> b) {
     return a[0] * b[0] + a[1] * b[1] + a[2] * b[2];
 }
 
+template<typename T>
+inline T vdistance(Vec3<T> a, Vec3<T> b) {
+    Vec3<T> d = a - b;
+    return std::sqrt(vdot(d, d));
+}
+
+template<typename T>
+inline Vec3<T> vclamp(Vec3<T> a, T minVal, T maxVal) {
+    return Vec3<T>(std::min(std::max(a[0], minVal), maxVal),
+                   std::min(std::max(a[1], minVal), maxVal),
+                   std::min(std::max(a[2], minVal), maxVal));
+}
+
+template<typename T>
+inline T clamp(T a, T minVal, T maxVal) {
+    return std::min(std::max(a, minVal), maxVal);
+}
+
+template<typename T>
+inline Vec3<T> vmix(Vec3<T> x, Vec3<T> y, T a) {
+    return x * (1 - a) + y * a;
+}
+
+template<typename T>
+inline Vec3<T> vfract(Vec3<T> x) {
+    return Vec3<T>(x[0] - std::floor(x[0]),
+                   x[1] - std::floor(x[1]),
+                   x[2] - std::floor(x[2])) ;
+}
+
+template<typename T>
+inline Vec3<T> vabs(Vec3<T> x) {
+    return Vec3<T>(std::abs(x[0]),
+                   std::abs(x[1]),
+                   std::abs(x[2]));
+}
+
 typedef Vec3<float> Vec3f;
+
+class Sphere {
+public:
+    Sphere(Vec3f _center, float _r) {
+        center = _center;
+        r = _r;
+    }
+
+    void invert(Vec3f &pos, float &dr) {
+        Vec3f diff = pos - center;
+        float lenSq = vdot(diff, diff);
+        float k = (r * r) / lenSq;
+        dr *= k; // (r * r) / lenSq
+        pos = diff * k + center;
+    }
+
+    Vec3f center;
+    float r;
+};
+
+inline Vec3f hsv2rgb(float h, float s, float v){
+    Vec3f c = Vec3f(h, s, v);
+    const Vec3f hue(h, h, h);
+    const Vec3f K = Vec3f(1.0, 2.0 / 3.0, 1.0 / 3.0);
+    const Vec3f Kx_ONE = Vec3f(1, 1, 1);
+    const Vec3f Kw = Vec3f(3, 3, 3);
+    Vec3f p = vabs(vfract(hue + K) * 6.0 - Kw);
+    return c.z() * vmix(Kx_ONE, vclamp(p - Kx_ONE, 0.0f, 1.0f), c.y());
+}
+
+class Plane {
+public:
+    Plane(Vec3f _origin, Vec3f _normal) {
+        origin = _origin;
+        normal = _normal;
+    }
+    Vec3f origin;
+    Vec3f normal;
+};
+
+inline float distSphere(const Vec3f pos, const Sphere s) {
+    return vdistance(pos, s.center) - s.r;
+}
+
+inline float distPlane(const Vec3f pos, const Plane p) {
+    return vdot(pos - p.origin, p.normal);
+}
+
+inline float distInfSphairahedron(const Vec3f pos,
+                                  const std::vector<Sphere> spheres,
+                                  const std::vector<Plane> planes,
+                                  const Plane divPlane) {
+    float d = -1;
+    d = std::max(distPlane(pos, planes[0]), d);
+    d = std::max(distPlane(pos, planes[1]), d);
+    d = std::max(distPlane(pos, planes[2]), d);
+    d = std::max(distPlane(pos, divPlane), d);
+
+    d = std::max(-distSphere(pos, spheres[0]), d);
+    d = std::max(-distSphere(pos, spheres[1]), d);
+    d = std::max(-distSphere(pos, spheres[2]), d);
+    return d;
+}
+
+const int MAX_ITER_COUNT = 1000;
+int IIS(Vec3f pos,
+        std::vector<Sphere> spheres,
+        std::vector<Plane> planes,
+        const Plane divPlane) {
+    int invNum = 0;
+    float dr = 1.0;
+    for(int n = 0; n < MAX_ITER_COUNT; n++) {
+        bool inFund = true;
+        std::for_each(spheres.begin(), spheres.end(),
+                      [&](Sphere s){
+                          if (vdistance(pos, s.center) < s.r) {
+                              //std::cout << pos.x() << std::endl;
+                              s.invert(pos, dr);
+                              //std::cout << pos.x() << std::endl;
+                              invNum++;
+                              inFund = false;
+                          }
+                      });
+        std::for_each(planes.begin(), planes.end(),
+                      [&](Plane p){
+                          pos = pos - p.origin;
+                          float d = vdot(pos, p.normal);
+                          if (d > 0.) {
+                              pos = pos - 2.f * d * p.normal;
+                              invNum++;
+                              inFund = false;
+                          }
+                         pos = pos + p.origin;
+                      });
+        if (inFund) break;
+    }
+
+    if(distInfSphairahedron(pos,
+                            spheres,
+                            planes,
+                            divPlane) / dr <= 0.) {
+        return invNum;
+    }
+    return -1;
+}
+
+const Vec3f offset(0.5, 0, std::sqrt(3.) * 0.5);
+const std::vector<Sphere> spheres = {
+    Sphere(Vec3f(0.25450630091522675, 0, 0)  + offset,
+           0.7454936990847733),
+    Sphere(Vec3f(-0.3116633792528053,
+                 0.6053931133878944,
+                 0.5398168077244666) + offset,
+           0.37667324149438935),
+    Sphere(Vec3f(-0.12608782704164367,
+                 1.2165336555165491,
+                 -0.21839052265208383) + offset,
+           0.7478243459167127)
+};
+
+const std::vector<Plane> planes = {
+    Plane(Vec3f(0,
+                5,
+                0.5773502691896258) + offset,
+          Vec3f(0.5,
+                0,
+                0.8660254037844388)),
+    Plane(Vec3f(0,
+                3,
+                -0.5773502691896258) + offset,
+          Vec3f(0.5,
+                0,
+                -0.8660254037844388)),
+    Plane(Vec3f(-0.5, 0, 1) + offset,
+          Vec3f(-1, 0, 0))
+};
+
+const Plane divPlane(Vec3f(0.9999999999999948,
+                           -1.3100631690576847e-14,
+                           7.91033905045424e-15) + offset,
+                     Vec3f(0.4969732028017572,
+                           0.8183202716219945,
+                           0.2887378893554992));
+
+inline Vec3f computeColor (Vec3f pos) {
+    // int invNum = IIS(pos, spheres, planes, divPlane);
+    // if (invNum == -1) {
+    //     return Vec3f(0, 0, 0);
+    // }
+    // return hsv2rgb((-0.13 + float(invNum) * 0.01 + pos.y()), 1., 1.);
+    return hsv2rgb((-0.13 + pos.y()), 1., 1.);
+}
 
 int main(int argc, char** argv) {
     if (argc < 2) {
@@ -110,8 +300,8 @@ int main(int argc, char** argv) {
         return 0;
     }
 
-    const int texSize = 1024;
-    const float uvStep = 1.0f / texSize;
+    const int texSize = 2048;
+    const float uvStep = 1.0f / texSize / 2.f;
     printf("texture size ... %d x %d\n", texSize, texSize);
     printf("uv step ... %f\n", uvStep);
 
@@ -141,6 +331,8 @@ int main(int argc, char** argv) {
     printf("\n");
 
     unsigned char *textureData = new unsigned char[texSize * texSize * 3];
+    std::fill(textureData, textureData + texSize * texSize * 3, 0);
+
     for (size_t s = 0; s < shapes.size(); s++) {
         printf("Shape %d\n", (int) shapes.size());
         printf("# of faces %d\n", (int) shapes[s].mesh.num_face_vertices.size());
@@ -178,18 +370,18 @@ int main(int argc, char** argv) {
             }
             index_offset += fv;
 
-            printf("(%f, %f), (%f, %f), (%f, %f)\n",
-                   faceUv[0].x(), faceUv[0].z(),
-                   faceUv[1].x(), faceUv[1].z(),
-                   faceUv[2].x(), faceUv[2].z());
-            printf("BBox (%f, %f) ~ (%f, %f)\n",
-                   uvMin.x(), uvMin.z(),
-                   uvMax.x(), uvMax.z());
+            // printf("(%f, %f), (%f, %f), (%f, %f)\n",
+            //        faceUv[0].x(), faceUv[0].z(),
+            //        faceUv[1].x(), faceUv[1].z(),
+            //        faceUv[2].x(), faceUv[2].z());
+            // printf("BBox (%f, %f) ~ (%f, %f)\n",
+            //        uvMin.x(), uvMin.z(),
+            //        uvMax.x(), uvMax.z());
             float area2 = vlength(vcross(faceUv[1] - faceUv[0],
                                          faceUv[2] - faceUv[0]));
-            printf("Squared area ... %f\n", area2);
-            for(float u = uvMin[0]; u < uvMax[0]; u += uvStep) {
-                for (float v = uvMin[2]; v < uvMax[2]; v += uvStep) {
+            // printf("Squared area ... %f\n", area2);
+            for(float u = uvMin[0] - uvStep * 2; u < uvMax[0] + uvStep * 2; u += uvStep) {
+                for (float v = uvMin[2] - uvStep * 2; v < uvMax[2] + uvStep * 2; v += uvStep) {
                     Vec3f uv(u, 0, v);
                     Vec3f e1 = faceUv[2] - faceUv[1];
                     float pu = vlength(vcross(e1, uv - faceUv[1])) / area2;
@@ -197,25 +389,33 @@ int main(int argc, char** argv) {
                     Vec3f e2 = faceUv[0] - faceUv[2];
                     float pv = vlength(vcross(e2, uv - faceUv[2])) / area2;
                     float pw = 1.f - pu - pv;
-                    if(pu > 1.f || pv > 1.f || pw > 1.f ||
-                       pu < 0.f || pv < 0.f || pw < 0.f) {
+                    if(pu > 1.1f || pv > 1.1f || pw > 1.1f ||
+                       pu < -0.1f || pv < -0.1f || pw < -0.1f) {
                         // Outside of the face
                         // printf("barycentric coordinates (%f, %f, %f)\n", pu, pv, pw);
-                    } else {
-                        const int x = u * texSize;
-                        const int y = (1.f - v) * texSize;
+                    } else
+                    {
+                        const int x = clamp(float(round(u * (texSize -1))),
+                                            0.f, float(texSize - 1));
+                        const int y = clamp(float(round((1.f - v) * (texSize - 1))),
+                                            0.f, float(texSize - 1));
                         const int index = y * texSize + x;
                         Vec3f coord = faceVert[0] * pu + faceVert[1] * pv + faceVert[2] * pw;
-                        textureData[index * 3 + 0] = (unsigned char)std::max(0.0,
-                                                                             std::min((coord.y() + 1.) / 2.f * 255.f,
-                                                                                      255.0));
-                        textureData[index * 3 + 1] = (unsigned char) 0.f;
-                        textureData[index * 3 + 2] = (unsigned char) 0.f;
+                        Vec3f rgb = computeColor(coord);
+                        textureData[index * 3 + 0] =
+                            (unsigned char) std::max(0.0f,
+                                                     std::min(rgb[0] * 255.f, 255.0f));
+                        textureData[index * 3 + 1] =
+                            (unsigned char) std::max(0.0f,
+                                                     std::min(rgb[1] * 255.f, 255.0f));
+                        textureData[index * 3 + 2] =
+                            (unsigned char) std::max(0.0f,
+                                                     std::min(rgb[2] * 255.f, 255.0f));
                         //printf("barycentric coordinates (%f, %f, %f)\n", pu, pv, pw);
                     }
                 }
             }
-            printf("\n");
+            // printf("\n");
         }
     }
 
