@@ -3,6 +3,8 @@
 #include <algorithm>
 #include <cmath>
 
+#include "args.hxx"
+
 #define TINYOBJLOADER_IMPLEMENTATION
 #include "./tiny_obj_loader.h"
 
@@ -305,12 +307,34 @@ inline Vec3f computeColor (Vec3f pos) {
 }
 
 int main(int argc, char** argv) {
-    if (argc < 2) {
-        std::cout << "Needs input.obj\n" << std::endl;
+    args::ArgumentParser parser("This is a test program.", "This goes after the options.");
+    args::HelpFlag help(parser, "help", "Display this help menu", {'h', "help"});
+    args::Positional<std::string> inputObjArg(parser, "input",
+                                              "input .obj file");
+    args::ValueFlag<int> texSizeArg(parser, "integer",
+                                         "The size of the generated texture. (default: 2048)", {'s'});
+    args::ValueFlag<std::string> outTexArg(parser, "string",
+                                        "The name of the generated texture. (default: texture.png)", {'o'});
+
+    try {
+        parser.ParseCLI(argc, argv);
+    } catch (args::Help) {
+        std::cout << parser;
         return 0;
+    } catch (args::ParseError e) {
+        std::cerr << e.what() << std::endl;
+        std::cerr << parser;
+        return 1;
+    } catch (args::ValidationError e) {
+        std::cerr << e.what() << std::endl;
+        std::cerr << parser;
+        return 1;
     }
 
-    const int texSize = 4096;
+    const std::string inputObjName = args::get(inputObjArg);
+    const int texSize = texSizeArg ? args::get(texSizeArg) : 2048;
+    const std::string outTexName = outTexArg ? args::get(outTexArg) : "texture.png";
+
     const float uvStep = 1.0f / texSize / 2.f;
     printf("texture size ... %d x %d\n", texSize, texSize);
     printf("uv step ... %f\n", uvStep);
@@ -321,15 +345,15 @@ int main(int argc, char** argv) {
 
     std::string err;
 
-    std::cout << "Load " << argv[1] << std::endl;
-    bool ret = tinyobj::LoadObj(&attrib, &shapes, &materials, &err, argv[1]);
+    std::cout << "Load " << inputObjName << std::endl;
+    bool ret = tinyobj::LoadObj(&attrib, &shapes, &materials, &err, inputObjName.c_str());
 
     if (!err.empty()) { // `err` may contain warning message.
         std::cerr << err << std::endl;
     }
 
     if (!ret) {
-        std::cerr << "Failed to load " << argv[1] << std::endl;
+        std::cerr << "Failed to load " << inputObjName << std::endl;
         exit(1);
     }
 
@@ -434,13 +458,13 @@ int main(int argc, char** argv) {
         }
     }
 
-    int n = stbi_write_png("texture.png", texSize, texSize, 3, textureData, texSize * 3);
+    int n = stbi_write_png(outTexName.c_str(), texSize, texSize, 3, textureData, texSize * 3);
     delete[] textureData;
 
     if (n == 0) {
         fprintf(stderr, "Error to save PNG image:\n");
     } else {
-        printf("Saved image to [ %s ]\n", "texture.png");
+        printf("Saved image to [ %s ]\n", outTexName.c_str());
     }
 
     return 0;
