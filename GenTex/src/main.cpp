@@ -176,6 +176,13 @@ inline Vec3f hsv2rgb(float h, float s, float v){
     return c.z() * vmix(Kx_ONE, vclamp(p - Kx_ONE, 0.0f, 1.0f), c.y());
 }
 
+const float GAMMA_COEFF = 1. / 2.2;
+inline Vec3f gammaCorrect(Vec3f &rgb) {
+    rgb[0] = std::min(std::pow(rgb[0], GAMMA_COEFF), 1.f);
+    rgb[1] = std::min(std::pow(rgb[1], GAMMA_COEFF), 1.f);
+    rgb[2] = std::min(std::pow(rgb[2], GAMMA_COEFF), 1.f);
+}
+
 class Plane {
 public:
     Plane(Vec3f _origin, Vec3f _normal) {
@@ -441,6 +448,7 @@ int main(int argc, char** argv) {
                         const int index = y * texSize + x;
                         Vec3f coord = faceVert[0] * pu + faceVert[1] * pv + faceVert[2] * pw;
                         Vec3f rgb = computeColor(coord);
+                        gammaCorrect(rgb);
                         textureData[index * 3 + 0] =
                             (unsigned char) std::max(0.0f,
                                                      std::min(rgb[0] * 255.f, 255.0f));
