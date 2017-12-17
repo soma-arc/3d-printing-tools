@@ -2,6 +2,7 @@
 #include <vector>
 #include <algorithm>
 #include <cmath>
+#include <GLFW/glfw3.h>
 
 #include "args.hxx"
 
@@ -309,171 +310,42 @@ inline Vec3f computeColor (Vec3f pos) {
     if (invNum == -1) {
         return Vec3f(0, 0, 0);
     }
-    return hsv2rgb((float(invNum) * 0.01), 1., 1.);
+    return hsv2rgb(((invNum) * 0.01), 1., 1.);
 //    return hsv2rgb((-0.13 + pos.y()), 1., 1.);
 }
 
 int main(int argc, char** argv) {
-    args::ArgumentParser parser("This is a test program.", "This goes after the options.");
-    args::HelpFlag help(parser, "help", "Display this help menu", {'h', "help"});
-    args::Positional<std::string> inputObjArg(parser, "input",
-                                              "input .obj file");
-    args::ValueFlag<int> texSizeArg(parser, "integer",
-                                         "The size of the generated texture. (default: 2048)", {'s'});
-    args::ValueFlag<std::string> outTexArg(parser, "string",
-                                        "The name of the generated texture. (default: texture.png)", {'o'});
+    GLFWwindow* window;
 
-    try {
-        parser.ParseCLI(argc, argv);
-    } catch (args::Help) {
-        std::cout << parser;
-        return 0;
-    } catch (args::ParseError e) {
-        std::cerr << e.what() << std::endl;
-        std::cerr << parser;
-        return 1;
-    } catch (args::ValidationError e) {
-        std::cerr << e.what() << std::endl;
-        std::cerr << parser;
-        return 1;
+    /* Initialize the library */
+    if (!glfwInit())
+        return -1;
+
+    /* Create a windowed mode window and its OpenGL context */
+    ::glfwWindowHint( GLFW_VISIBLE, 0 );
+    window = glfwCreateWindow(640, 480, "Hello World", NULL, NULL);
+    if (!window)
+    {
+        glfwTerminate();
+        return -1;
     }
 
-    const std::string inputObjName = args::get(inputObjArg);
-    const int texSize = texSizeArg ? args::get(texSizeArg) : 2048;
-    const std::string outTexName = outTexArg ? args::get(outTexArg) : "texture.png";
+    /* Make the window's context current */
+    glfwMakeContextCurrent(window);
 
-    const float uvStep = 1.0f / texSize / 2.f;
-    printf("texture size ... %d x %d\n", texSize, texSize);
-    printf("uv step ... %f\n", uvStep);
+    /* Loop until the user closes the window */
+    while (!glfwWindowShouldClose(window))
+    {
+        /* Render here */
+        glClear(GL_COLOR_BUFFER_BIT);
 
-    tinyobj::attrib_t attrib;
-    std::vector<tinyobj::shape_t> shapes;
-    std::vector<tinyobj::material_t> materials;
+        /* Swap front and back buffers */
+        glfwSwapBuffers(window);
 
-    std::string err;
-
-    std::cout << "Load " << inputObjName << std::endl;
-    bool ret = tinyobj::LoadObj(&attrib, &shapes, &materials, &err, inputObjName.c_str());
-
-    if (!err.empty()) { // `err` may contain warning message.
-        std::cerr << err << std::endl;
+        /* Poll for and process events */
+        glfwPollEvents();
     }
 
-    if (!ret) {
-        std::cerr << "Failed to load " << inputObjName << std::endl;
-        exit(1);
-    }
-
-    if (attrib.texcoords.size() == 0) {
-        std::cerr << "This object has no texture coordinates."  << std::endl;
-        exit(1);
-    }
-
-    printf("# of vertices  = %d\n", (int) (attrib.vertices.size()) / 3);
-    printf("# of normals   = %d\n", (int) (attrib.normals.size()) / 3);
-    printf("# of texcoords = %d\n", (int) (attrib.texcoords.size()) / 2);
-    printf("# of materials = %d\n", (int) materials.size());
-    printf("# of shapes    = %d\n", (int) shapes.size());
-    printf("\n");
-
-    unsigned char *textureData = new unsigned char[texSize * texSize * 3];
-    std::fill(textureData, textureData + texSize * texSize * 3, 0);
-
-    for (size_t s = 0; s < shapes.size(); s++) {
-        printf("Shape %d\n", (int) shapes.size());
-        printf("# of faces %d\n", (int) shapes[s].mesh.num_face_vertices.size());
-        size_t index_offset = 0;
-        for (size_t f = 0; f < shapes[s].mesh.num_face_vertices.size(); f++) {
-            // The number of vertexes in the face. 3, 4 or 5?
-            int fv = shapes[s].mesh.num_face_vertices[f];
-            if(fv > 3) {
-                printf("quad!!");
-                continue;
-            }
-
-            std::vector<Vec3f> faceVert;
-            std::vector<Vec3f> faceUv;
-            Vec3f uvMin(2, 0, 2);
-            Vec3f uvMax(-1, 0, -1);
-            // Loop over vertices in the face.
-            for (int v = 0; v < fv; v++) {
-                // access to vertex
-                tinyobj::index_t idx = shapes[s].mesh.indices[index_offset + v];
-                tinyobj::real_t vx = attrib.vertices[3*idx.vertex_index+0];
-                tinyobj::real_t vy = attrib.vertices[3*idx.vertex_index+1];
-                tinyobj::real_t vz = attrib.vertices[3*idx.vertex_index+2];
-                tinyobj::real_t nx = attrib.normals[3*idx.normal_index+0];
-                tinyobj::real_t ny = attrib.normals[3*idx.normal_index+1];
-                tinyobj::real_t nz = attrib.normals[3*idx.normal_index+2];
-                tinyobj::real_t tx = attrib.texcoords[2*idx.texcoord_index+0];
-                tinyobj::real_t ty = attrib.texcoords[2*idx.texcoord_index+1];
-                faceVert.push_back(Vec3f(vx, vy, vz));
-                faceUv.push_back(Vec3f(tx, 0, ty));
-                uvMin[0] = std::min(tx, uvMin[0]);
-                uvMin[2] = std::min(ty, uvMin[2]);
-                uvMax[0] = std::max(tx, uvMax[0]);
-                uvMax[2] = std::max(ty, uvMax[2]);
-            }
-            index_offset += fv;
-
-            // printf("(%f, %f), (%f, %f), (%f, %f)\n",
-            //        faceUv[0].x(), faceUv[0].z(),
-            //        faceUv[1].x(), faceUv[1].z(),
-            //        faceUv[2].x(), faceUv[2].z());
-            // printf("BBox (%f, %f) ~ (%f, %f)\n",
-            //        uvMin.x(), uvMin.z(),
-            //        uvMax.x(), uvMax.z());
-            float area2 = vlength(vcross(faceUv[1] - faceUv[0],
-                                         faceUv[2] - faceUv[0]));
-            // printf("Squared area ... %f\n", area2);
-            for(float u = uvMin[0] - uvStep * 2; u < uvMax[0] + uvStep * 2; u += uvStep) {
-                for (float v = uvMin[2] - uvStep * 2; v < uvMax[2] + uvStep * 2; v += uvStep) {
-                    Vec3f uv(u, 0, v);
-                    Vec3f e1 = faceUv[2] - faceUv[1];
-                    float pu = vlength(vcross(e1, uv - faceUv[1])) / area2;
-
-                    Vec3f e2 = faceUv[0] - faceUv[2];
-                    float pv = vlength(vcross(e2, uv - faceUv[2])) / area2;
-                    float pw = 1.f - pu - pv;
-                    if(pu > 1.01f || pv > 1.01f || pw > 1.01f ||
-                       pu < -0.01f || pv < -0.01f || pw < -0.01f) {
-                        // Outside of the face
-                        // printf("barycentric coordinates (%f, %f, %f)\n", pu, pv, pw);
-                    } else
-                    {
-                        const int x = clamp(float(round(u * (texSize -1))),
-                                            0.f, float(texSize - 1));
-                        const int y = clamp(float(round((1.f - v) * (texSize - 1))),
-                                            0.f, float(texSize - 1));
-                        const int index = y * texSize + x;
-                        Vec3f coord = faceVert[0] * pu + faceVert[1] * pv + faceVert[2] * pw;
-                        Vec3f rgb = computeColor(coord);
-                        gammaCorrect(rgb);
-                        textureData[index * 3 + 0] =
-                            (unsigned char) std::max(0.0f,
-                                                     std::min(rgb[0] * 255.f, 255.0f));
-                        textureData[index * 3 + 1] =
-                            (unsigned char) std::max(0.0f,
-                                                     std::min(rgb[1] * 255.f, 255.0f));
-                        textureData[index * 3 + 2] =
-                            (unsigned char) std::max(0.0f,
-                                                     std::min(rgb[2] * 255.f, 255.0f));
-                        //printf("barycentric coordinates (%f, %f, %f)\n", pu, pv, pw);
-                    }
-                }
-            }
-            // printf("\n");
-        }
-    }
-
-    int n = stbi_write_png(outTexName.c_str(), texSize, texSize, 3, textureData, texSize * 3);
-    delete[] textureData;
-
-    if (n == 0) {
-        fprintf(stderr, "Error to save PNG image:\n");
-    } else {
-        printf("Saved image to [ %s ]\n", outTexName.c_str());
-    }
-
+    glfwTerminate();
     return 0;
 }
