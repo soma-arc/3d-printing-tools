@@ -43,6 +43,7 @@ workspace "GenMeshWorkspace"
          libdirs { _OPTIONS["openvdb-path"] .. "/lib/" }
          links { "openvdb" }
 
+         buildoptions { "-Wall", "-Wextra", "-Werror" }
          links {"pthread", "dl", "Half", "tbb", "boost_iostreams"}
       end
 
