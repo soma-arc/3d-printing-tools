@@ -164,6 +164,10 @@ public:
         pos = diff * k + center;
     }
 
+    float distance(const Vec3f pos) {
+        return vdistance(pos, center) - r;
+    }
+
     Vec3f center;
     float r;
 };
@@ -175,8 +179,98 @@ public:
         normal = _normal;
     }
 
+    float distance(const Vec3f pos) {
+        return vdot(pos - origin, normal);
+    }
+
     Vec3f origin;
     Vec3f normal;
+};
+
+class Sphairahedron {
+public:
+    Sphairahedron(Vec3f _bboxMin, Vec3f _bboxMax,
+                  std::vector<Sphere> _spheres,
+                  std::vector<Plane> _planes,
+                  std::vector<Plane> _boundingPlanes,
+                  std::vector<Plane> _dividePlanes) {
+        bboxMin = _bboxMin;
+        bboxMax = _bboxMax;
+        spheres = _spheres;
+        planes = _planes;
+        boundingPlanes = _boundingPlanes;
+        dividePlanes = _dividePlanes;
+    }
+
+    const int MAX_ITER_COUNT = 1000;
+    int iisInfSphairahedron(Vec3f pos) {
+        bool outside = false;
+
+        std::for_each(boundingPlanes.begin(), boundingPlanes.end(),
+                      [&](Plane p){
+                          pos = pos - p.origin;
+                          float d = vdot(pos, p.normal);
+                          if (d > 0.) {
+                              outside = true;
+                          }
+                          pos = pos + p.origin;
+                      });
+        if(outside) return -1;
+        int invNum = 0;
+        float dr = 1.0;
+        for(int n = 0; n < MAX_ITER_COUNT; n++) {
+            bool inFund = true;
+            std::for_each(spheres.begin(), spheres.end(),
+                          [&](Sphere s){
+                              if (vdistance(pos, s.center) < s.r) {
+                                  s.invert(pos, dr);
+                                  invNum++;
+                                  inFund = false;
+                              }
+                          });
+            std::for_each(planes.begin(), planes.end(),
+                          [&](Plane p){
+                              pos = pos - p.origin;
+                              float d = vdot(pos, p.normal);
+                              if (d > 0.) {
+                                  pos = pos - 2.f * d * p.normal;
+                                  invNum++;
+                                  inFund = false;
+                              }
+                              pos = pos + p.origin;
+                          });
+            if (inFund) break;
+        }
+
+        if(distInfSphairahedron(pos) / dr <= 0.) {
+            return invNum;
+        }
+        return -1;
+    }
+
+    float distInfSphairahedron(const Vec3f pos) {
+        float d = -1;
+        std::for_each(planes.begin(), planes.end(),
+                      [&](Plane p){
+                          d = std::max(p.distance(pos), d);
+                      });
+        std::for_each(dividePlanes.begin(), dividePlanes.end(),
+                      [&](Plane p){
+                          d = std::max(p.distance(pos), d);
+                      });
+        std::for_each(spheres.begin(), spheres.end(),
+                      [&](Sphere s){
+                          d = std::max(-s.distance(pos), d);
+                      });
+        return d;
+    }
+
+    Vec3f bboxMin;
+    Vec3f bboxMax;
+    std::vector<Plane> boundingPlanes;
+    std::vector<Sphere> spheres;
+    std::vector<Plane> planes;
+    std::vector<Plane> dividePlanes;
 };
 
 void writeObj(
