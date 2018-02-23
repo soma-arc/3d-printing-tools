@@ -10,8 +10,6 @@
 #include <vector>
 #include <cmath>
 
-using json = nlohmann::json;
-
 template <typename T>
 class Vec3 {
 public:
@@ -465,7 +463,9 @@ void makeMesh(Vec3f bboxMin, Vec3f bboxMax, Vec3f sliceStep) {
 // Hello World for OpenVDB
 // http://www.openvdb.org/documentation/doxygen/codeExamples.html
 int main(int argc, char** argv) {
-    args::ArgumentParser parser("This is a test program.");
+    args::ArgumentParser parser("Generate mesh.");
+    args::Positional<std::string> inputJson(parser, "input", "Input json file", {"scene.json"});
+
     try {
         parser.ParseCLI(argc, argv);
     } catch (args::Help) {
@@ -475,5 +475,22 @@ int main(int argc, char** argv) {
         std::cerr << e.what() << std::endl;
         std::cerr << parser;
         return 1;
+    } catch (args::ValidationError e) {
+        std::cerr << e.what() << std::endl;
+        std::cerr << parser;
+        return 1;
     }
+
+    std::string inputJsonFileName;
+    inputJsonFileName = args::get(inputJson);
+
+    std::ifstream ifs(inputJsonFileName);
+    nlohmann::json jsonObj;
+    if (!ifs) {
+        std::cout << "Can't open " << inputJsonFileName << std::endl;
+        return 1;
+    }
+    ifs >> jsonObj;
+    ifs.close();
+
 }
