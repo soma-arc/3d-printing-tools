@@ -14,10 +14,10 @@ template <typename T>
 class Vec3 {
 public:
     Vec3(){}
-    Vec3(T v) {
-        v[0] = v;
-        v[1] = v;
-        v[2] = v;
+    Vec3(T _v) {
+        v[0] = _v;
+        v[1] = _v;
+        v[2] = _v;
     }
     Vec3(T x, T y, T z) {
         v[0] = x;
@@ -201,7 +201,7 @@ public:
     }
 
     const int MAX_ITER_COUNT = 1000;
-    int iisInfSphairahedron(Vec3f pos) {
+    float iisInfSphairahedron(Vec3f pos) {
         bool outside = false;
 
         std::for_each(boundingPlanes.begin(), boundingPlanes.end(),
@@ -240,10 +240,7 @@ public:
             if (inFund) break;
         }
 
-        if(distInfSphairahedron(pos) / dr <= 0.) {
-            return invNum;
-        }
-        return -1;
+        return distInfSphairahedron(pos) / dr;
     }
 
     float distInfSphairahedron(const Vec3f pos) {
@@ -372,16 +369,14 @@ std::vector<openvdb::Vec3s> computeNormals(openvdb::FloatGrid::Ptr grid,
     return normals;
 }
 
-openvdb::FloatGrid::Ptr computeVolumeGrid(Vec3f bboxMin, Vec3f bboxMax, Vec3f sliceStep) {
+openvdb::FloatGrid::Ptr computeVolumeGrid(Sphairahedron sphairahedron, Vec3f sliceStep) {
+    Vec3f bboxMin = sphairahedron.bboxMin;
+    Vec3f bboxMax = sphairahedron.bboxMax;
     Vec3i dim (int((bboxMax.x() - bboxMin.x()) / sliceStep.x()),
                int((bboxMax.y() - bboxMin.y()) / sliceStep.y()),
                int((bboxMax.z() - bboxMin.z()) / sliceStep.z()));
     int numPoints = dim.x() * dim.y() * dim.z();
 
-    std::vector<int> invNums;
-    invNums.resize(numPoints);
-    std::vector<float> distances;
-    distances.resize(numPoints);
     std::cout << "dim "
               << dim.x() << " "
               << dim.y() << " "
@@ -397,27 +392,20 @@ openvdb::FloatGrid::Ptr computeVolumeGrid(Vec3f bboxMin, Vec3f bboxMax, Vec3f sl
          openvdb::createLevelSet<openvdb::FloatGrid>(voxelSize, halfWidth);
      openvdb::FloatGrid::Accessor accessor = grid->getAccessor();
 
-     int i = 0;
      for(int zi = 0; zi < dim.z(); zi++) {
          std::cout << zi << std::endl;
          for(int yi = 0; yi < dim.y(); yi++) {
              for(int xi = 0; xi < dim.x(); xi++) {
                  if (yi == 0) {
-                     distances[i] = 0.;
-                     i++;
                      continue;
                  }
                  Vec3f p (bboxMin.x() + sliceStep.x() * float(xi),
                           bboxMin.y() + sliceStep.y() * float(yi),
                           bboxMin.z() + sliceStep.z() * float(zi));
-                 (void) p;
-//                int invNum = IIS(p, prismSpheres, prismPlanes, divPlane);
-                 float dd = 1.f;//distIIS(p, prismSpheres, prismPlanes, divPlane);
-//                distances[i] = invNum < 0 ? 0 : 10;
-                 if(abs(dd) < 0.01 ) {
-                     accessor.setValue(openvdb::Coord(xi, yi, zi), dd);
+                 float dist = sphairahedron.iisInfSphairahedron(p);
+                 if(abs(dist) < 0.01 ) {
+                     accessor.setValue(openvdb::Coord(xi, yi, zi), dist);
                  }
-                 i++;
              }
          }
      }
@@ -426,14 +414,14 @@ openvdb::FloatGrid::Ptr computeVolumeGrid(Vec3f bboxMin, Vec3f bboxMax, Vec3f sl
      return grid;
 }
 
-void makeMesh(Vec3f bboxMin, Vec3f bboxMax, Vec3f sliceStep) {
+void makeMesh(Sphairahedron sphairahedron, Vec3f sliceStep) {
     bool flipNormal = false;
     int smoothIterations = 0;
     bool enableAdaptiveMeshing = false;
     float adaptivity = 0.0f;
     float isovalue = 0.f;
 
-    openvdb::FloatGrid::Ptr grid = computeVolumeGrid(bboxMin, bboxMax, sliceStep);
+    openvdb::FloatGrid::Ptr grid = computeVolumeGrid(sphairahedron, sliceStep);
 
     grid->tree().print(std::cout, 4);
     writeGrid(grid, "IISVolume");
@@ -458,6 +446,58 @@ void makeMesh(Vec3f bboxMin, Vec3f bboxMax, Vec3f sliceStep) {
 
     writeGrid(grid, "IISVolumeProcessed");
     writeObj("IIS", points, normals, quads, triangles);
+}
+
+Sphairahedron createSphairahedronFromJson(nlohmann::json jsonObj) {
+    Vec3f bboxMin(jsonObj["bboxMin"][0], jsonObj["bboxMin"][1], jsonObj["bboxMin"][2]);
+    Vec3f bboxMax(jsonObj["bboxMax"][0], jsonObj["bboxMax"][1], jsonObj["bboxMax"][2]);
+
+    std::vector<Sphere> spheres;
+    for (auto data: jsonObj["prismSpheres"]) {
+        spheres.push_back(Sphere(Vec3f(data["center"][0],
+                                       data["center"][1],
+                                       data["center"][2]),
+                                 data["r"].get<float>()));
+    }
+
+    std::vector<Plane> planes;
+    for (auto data: jsonObj["prismPlanes"]) {
+        planes.push_back(Plane(Vec3f(data["p1"][0],
+                                     data["p1"][1],
+                                     data["p1"][2]),
+                               Vec3f(data["normal"][0],
+                                     data["normal"][1],
+                                     data["normal"][2])));
+    }
+
+    std::vector<Plane> boundingPlanes;
+    for (auto data: jsonObj["boundingPlanes"]) {
+        Vec3f origin(data["p1"][0],
+                     data["p1"][1],
+                     data["p1"][2]);
+        Vec3f normal(data["normal"][0],
+                     data["normal"][1],
+                     data["normal"][2]);
+        boundingPlanes.push_back(Plane(origin + 0.001f * normal, normal));
+    }
+
+    std::vector<Plane> dividePlanes;
+    for (auto data: jsonObj["dividePlanes"]) {
+        dividePlanes.push_back(Plane(Vec3f(data["p1"][0],
+                                             data["p1"][1],
+                                             data["p1"][2]),
+                                       Vec3f(data["normal"][0],
+                                             data["normal"][1],
+                                             data["normal"][2])));
+    }
+
+    std::cout << "number of prism spheres " << spheres.size() << std::endl;
+    std::cout << "number of prism planes " << planes.size() << std::endl;
+
+    return Sphairahedron(bboxMin, bboxMax,
+                         spheres, planes,
+                         boundingPlanes,
+                         dividePlanes);
 }
 
 // Hello World for OpenVDB
@@ -493,4 +533,6 @@ int main(int argc, char** argv) {
     ifs >> jsonObj;
     ifs.close();
 
+    Sphairahedron s = createSphairahedronFromJson(jsonObj);
+    makeMesh(s, Vec3f(0.01));
 }
