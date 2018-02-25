@@ -122,6 +122,20 @@ inline Vec3<T> vclamp(Vec3<T> a, T minVal, T maxVal) {
 }
 
 template<typename T>
+inline Vec3<T> vmin(Vec3<T> a, Vec3<T> b) {
+    return Vec3<T>(std::min(a[0], b[0]),
+                   std::min(a[1], b[1]),
+                   std::min(a[2], b[2]));
+}
+
+template<typename T>
+inline Vec3<T> vmax(Vec3<T> a, Vec3<T> b) {
+    return Vec3<T>(std::max(a[0], b[0]),
+                   std::max(a[1], b[1]),
+                   std::max(a[2], b[2]));
+}
+
+template<typename T>
 inline T clamp(T a, T minVal, T maxVal) {
     return std::min(std::max(a, minVal), maxVal);
 }
@@ -150,6 +164,7 @@ typedef Vec3<int> Vec3i;
 
 class Sphere {
 public:
+    Sphere() {}
     Sphere(Vec3f _center, float _r) {
         center = _center;
         r = _r;
@@ -194,7 +209,8 @@ public:
                   std::vector<Plane> _boundingPlanes,
                   std::vector<Plane> _dividePlanes,
                   std::vector<Sphere> _finiteSpheres,
-                  std::vector<Sphere> _convexSpheres) {
+                  std::vector<Sphere> _convexSpheres,
+                  Sphere _boundingSphere) {
         bboxMin = _bboxMin;
         bboxMax = _bboxMax;
         spheres = _spheres;
@@ -203,9 +219,9 @@ public:
         dividePlanes = _dividePlanes;
         finiteSpheres = _finiteSpheres;
         convexSpheres = _convexSpheres;
+        boundingSphere = _boundingSphere;
     }
 
-    const int MAX_ITER_COUNT = 10000;
     float iisInfSphairahedron(Vec3f pos) {
         bool outside = false;
         bool inside = false;
@@ -242,7 +258,7 @@ public:
 
         int invNum = 0;
         float dr = 1.0;
-        for(int n = 0; n < MAX_ITER_COUNT; n++) {
+        for(int n = 0; n < MAX_IIS_ITER_COUNT; n++) {
             bool inFund = true;
             std::for_each(spheres.begin(), spheres.end(),
                           [&](Sphere s){
@@ -292,6 +308,38 @@ public:
         return d;
     }
 
+    float iisFiniteSphairahedron(Vec3f pos) {
+        int invNum = 0;
+        float dr = 1.0;
+        for(int n = 0; n < MAX_IIS_ITER_COUNT; n++) {
+            bool inFund = true;
+            std::for_each(finiteSpheres.begin(), finiteSpheres.end(),
+                          [&](Sphere s){
+                              if (vdistance(pos, s.center) < s.r) {
+                                  s.invert(pos, dr);
+                                  invNum++;
+                                  inFund = false;
+                              }
+                          });
+            if (inFund) break;
+        }
+
+        return distFiniteSphairahedron(pos) / dr;
+    }
+
+    float distFiniteSphairahedron(const Vec3f pos) {
+        float d = -1.;
+        std::for_each(convexSpheres.begin(), convexSpheres.end(),
+                      [&](Sphere s){
+                          d = std::max(s.distance(pos), d);
+                      });
+        std::for_each(finiteSpheres.begin(), finiteSpheres.end(),
+                      [&](Sphere s){
+                          d = std::max(-s.distance(pos), d);
+                      });
+        return d;
+    }
+
     Vec3f bboxMin;
     Vec3f bboxMax;
     std::vector<Plane> boundingPlanes;
@@ -301,6 +349,8 @@ public:
 
     std::vector<Sphere> finiteSpheres;
     std::vector<Sphere> convexSpheres;
+    Sphere boundingSphere;
+    const int MAX_IIS_ITER_COUNT = 10000;
 };
 
 void writeObj(
@@ -448,6 +498,51 @@ openvdb::FloatGrid::Ptr computeVolumeGrid(Sphairahedron sphairahedron, Vec3f sli
      return grid;
 }
 
+openvdb::FloatGrid::Ptr computeVolumeGridFinite(Sphairahedron sphairahedron, Vec3f sliceStep) {
+    Vec3f bboxMin = sphairahedron.boundingSphere.center - Vec3f(sphairahedron.boundingSphere.r) * 1.1;
+    Vec3f bboxMax = sphairahedron.boundingSphere.center + Vec3f(sphairahedron.boundingSphere.r) * 1.1;
+
+    Vec3i dim (int((bboxMax.x() - bboxMin.x()) / sliceStep.x()),
+               int((bboxMax.y() - bboxMin.y()) / sliceStep.y()),
+               int((bboxMax.z() - bboxMin.z()) / sliceStep.z()));
+    int numPoints = dim.x() * dim.y() * dim.z();
+
+    std::cout << "dim "
+              << dim.x() << " "
+              << dim.y() << " "
+              << dim.z() << std::endl;
+    std::cout << "numPoints " << numPoints << std::endl;
+
+    std::cout << "start" << std::endl;
+
+//    const float voxelSize = 1.0f, halfWidth = 2.0f;
+    const float voxelSize = sliceStep.x(), halfWidth = 2.0 * sliceStep.x();
+
+     openvdb::FloatGrid::Ptr grid =
+         openvdb::createLevelSet<openvdb::FloatGrid>(voxelSize, halfWidth);
+     openvdb::FloatGrid::Accessor accessor = grid->getAccessor();
+
+     std::cout << bboxMin.y() + sliceStep.y() << std::endl;
+     for(int zi = 0; zi < dim.z(); zi++) {
+         std::cout << zi << std::endl;
+         for(int yi = 0; yi < dim.y(); yi++) {
+             for(int xi = 0; xi < dim.x(); xi++) {
+
+                 const Vec3f p (bboxMin.x() + sliceStep.x() * float(xi),
+                                bboxMin.y() + sliceStep.y() * float(yi),
+                                bboxMin.z() + sliceStep.z() * float(zi));
+                 const float dist = sphairahedron.iisFiniteSphairahedron(p);
+                 if(abs(dist) < 0.1 ) {
+                     accessor.setValue(openvdb::Coord(xi, yi, zi), dist);
+                 }
+             }
+         }
+     }
+     openvdb::tools::signedFloodFill(grid->tree());
+
+     return grid;
+}
+
 
 template<typename TreeType>
 struct OffsetAndMinComp
@@ -530,13 +625,18 @@ smoothLevelSet(GridType& grid, int iterations, int halfBandWidthInVoxels, Interr
     normalizeLevelSet(grid, halfBandWidthInVoxels, interrupt);
 }
 
-void makeMesh(Sphairahedron sphairahedron, Vec3f sliceStep, int smoothIterations) {
-    bool flipNormal = false;
+void makeMesh(Sphairahedron sphairahedron, Vec3f sliceStep, int smoothIterations, bool isFinite) {
+    bool flipNormal = true;
     bool enableAdaptiveMeshing = false;
     float adaptivity = 0.0f;
     float isovalue = 0.f;
 
-    openvdb::FloatGrid::Ptr grid = computeVolumeGrid(sphairahedron, sliceStep);
+    openvdb::FloatGrid::Ptr grid;
+    if (isFinite) {
+        grid = computeVolumeGridFinite(sphairahedron, sliceStep);
+    } else {
+        grid = computeVolumeGrid(sphairahedron, sliceStep);
+    }
 
     grid->tree().print(std::cout, 4);
     writeGrid(grid, "IISVolume");
@@ -583,6 +683,11 @@ Sphairahedron createSphairahedronFromJson(nlohmann::json jsonObj) {
                                              data["center"][2]),
                                        data["r"].get<float>()));
     }
+
+    Sphere boundingSphere(Vec3f(jsonObj["boundingSphere"]["center"][0],
+                                jsonObj["boundingSphere"]["center"][1],
+                                jsonObj["boundingSphere"]["center"][2]),
+                          jsonObj["boundingSphere"]["r"].get<float>());
 
     std::vector<Sphere> convexSpheres;
     for (auto data: jsonObj["convexSpheres"]) {
@@ -637,16 +742,18 @@ Sphairahedron createSphairahedronFromJson(nlohmann::json jsonObj) {
                          boundingPlanes,
                          dividePlanes,
                          finiteSpheres,
-                         convexSpheres);
+                         convexSpheres,
+                         boundingSphere);
 }
 
 // Hello World for OpenVDB
 // http://www.openvdb.org/documentation/doxygen/codeExamples.html
 int main(int argc, char** argv) {
     args::ArgumentParser parser("Generate mesh.");
-    args::ValueFlag<float> sliceStep(parser, "step", "slice step", {"s", "sliceStep"}, 0.01f);
-    args::ValueFlag<std::string> inputJson(parser, "input", "Input json file", {"i", "input"}, "scene.json");
+    args::ValueFlag<float> sliceStep(parser, "step", "slice step", {'s', "sliceStep"}, 0.01f);
+    args::ValueFlag<std::string> inputJson(parser, "input", "Input json file", {'i', "input"}, "scene.json");
     args::ValueFlag<int> smoothIterations(parser, "smoothIterations", "Iterations of smoothing", {"smooth"}, 0);
+    args::Flag isFinite(parser, "isFinite", "Generate finite limit set", {'f', "finite"});
     args::HelpFlag help(parser, "help", "Display this help menu", {'h', "help"});
 
     try {
@@ -679,5 +786,5 @@ int main(int argc, char** argv) {
     std::cout << "slice step: " << args::get(sliceStep) << std::endl;
     std::cout << "smooth iterations: " << args::get(smoothIterations) << std::endl;
     Sphairahedron s = createSphairahedronFromJson(jsonObj);
-    makeMesh(s, Vec3f(args::get(sliceStep)), args::get(smoothIterations));
+    makeMesh(s, Vec3f(args::get(sliceStep)), args::get(smoothIterations), isFinite);
 }
