@@ -9,6 +9,7 @@
 #include <iostream>
 #include <vector>
 #include <cmath>
+#include <limits>
 
 template <typename T>
 class Vec3 {
@@ -191,29 +192,54 @@ public:
                   std::vector<Sphere> _spheres,
                   std::vector<Plane> _planes,
                   std::vector<Plane> _boundingPlanes,
-                  std::vector<Plane> _dividePlanes) {
+                  std::vector<Plane> _dividePlanes,
+                  std::vector<Sphere> _finiteSpheres,
+                  std::vector<Sphere> _convexSpheres) {
         bboxMin = _bboxMin;
         bboxMax = _bboxMax;
         spheres = _spheres;
         planes = _planes;
         boundingPlanes = _boundingPlanes;
         dividePlanes = _dividePlanes;
+        finiteSpheres = _finiteSpheres;
+        convexSpheres = _convexSpheres;
     }
 
-    const int MAX_ITER_COUNT = 1000;
+    const int MAX_ITER_COUNT = 10000;
     float iisInfSphairahedron(Vec3f pos) {
         bool outside = false;
+        bool inside = false;
+        float minDist = std::numeric_limits<float>::max();
+        float maxDist = -std::numeric_limits<float>::max();
+
+        // bottom surface
+        pos = pos - Vec3f(0, bboxMin.y(), 0);
+        const Vec3f bottomNormal(0, -1, 0);
+        const float d = vdot(pos, bottomNormal);
+        if (d > 0.0) {
+            minDist = std::min(d, minDist);
+            outside = true;
+        }
+        pos = pos + Vec3f(0, bboxMin.y(), 0);
 
         std::for_each(boundingPlanes.begin(), boundingPlanes.end(),
                       [&](Plane p){
                           pos = pos - p.origin;
-                          float d = vdot(pos, p.normal);
-                          if (d > 0.) {
-                              outside = true;
+                          const float d = vdot(pos, p.normal);
+                          if (abs(d) < 0.0001) {
+                              if (d > 0.) {
+                                  outside = true;
+                                  minDist = std::min(d, minDist);
+                              } else {
+                                  inside = true;
+                                  maxDist = std::max(d, maxDist);
+                              }
                           }
                           pos = pos + p.origin;
                       });
-        if(outside) return -1;
+
+        if(outside) return minDist;
+
         int invNum = 0;
         float dr = 1.0;
         for(int n = 0; n < MAX_ITER_COUNT; n++) {
@@ -240,6 +266,12 @@ public:
             if (inFund) break;
         }
 
+        if (inside) {
+            float finalDist = distInfSphairahedron(pos) / dr;
+            if (finalDist < 0.0) {
+                return maxDist;
+            }
+        }
         return distInfSphairahedron(pos) / dr;
     }
 
@@ -266,6 +298,9 @@ public:
     std::vector<Sphere> spheres;
     std::vector<Plane> planes;
     std::vector<Plane> dividePlanes;
+
+    std::vector<Sphere> finiteSpheres;
+    std::vector<Sphere> convexSpheres;
 };
 
 void writeObj(
@@ -392,18 +427,17 @@ openvdb::FloatGrid::Ptr computeVolumeGrid(Sphairahedron sphairahedron, Vec3f sli
          openvdb::createLevelSet<openvdb::FloatGrid>(voxelSize, halfWidth);
      openvdb::FloatGrid::Accessor accessor = grid->getAccessor();
 
+     std::cout << bboxMin.y() + sliceStep.y() << std::endl;
      for(int zi = 0; zi < dim.z(); zi++) {
          std::cout << zi << std::endl;
          for(int yi = 0; yi < dim.y(); yi++) {
              for(int xi = 0; xi < dim.x(); xi++) {
-                 if (yi == 0) {
-                     continue;
-                 }
-                 Vec3f p (bboxMin.x() + sliceStep.x() * float(xi),
-                          bboxMin.y() + sliceStep.y() * float(yi),
-                          bboxMin.z() + sliceStep.z() * float(zi));
-                 float dist = sphairahedron.iisInfSphairahedron(p);
-                 if(abs(dist) < 0.01 ) {
+
+                 const Vec3f p (bboxMin.x() + sliceStep.x() * float(xi),
+                                bboxMin.y() + sliceStep.y() * float(yi),
+                                bboxMin.z() + sliceStep.z() * float(zi));
+                 const float dist = sphairahedron.iisInfSphairahedron(p);
+                 if(abs(dist) < 0.1 ) {
                      accessor.setValue(openvdb::Coord(xi, yi, zi), dist);
                  }
              }
@@ -414,9 +448,90 @@ openvdb::FloatGrid::Ptr computeVolumeGrid(Sphairahedron sphairahedron, Vec3f sli
      return grid;
 }
 
-void makeMesh(Sphairahedron sphairahedron, Vec3f sliceStep) {
+
+template<typename TreeType>
+struct OffsetAndMinComp
+{
+    typedef typename TreeType::LeafNodeType     LeafNodeType;
+    typedef typename TreeType::ValueType        ValueType;
+
+    OffsetAndMinComp(std::vector<LeafNodeType*>& lhsNodes, const TreeType& rhsTree, ValueType offset)
+        : mLhsNodes(lhsNodes.empty() ? NULL : &lhsNodes[0]), mRhsTree(&rhsTree), mOffset(offset)
+    {
+    }
+
+    void operator()(const tbb::blocked_range<size_t>& range) const
+    {
+        typedef typename LeafNodeType::ValueOnIter Iterator;
+
+        openvdb::tree::ValueAccessor<const TreeType> rhsAcc(*mRhsTree);
+        const ValueType offset = mOffset;
+
+        for (size_t n = range.begin(), N = range.end(); n < N; ++n) {
+
+            LeafNodeType& lhsNode = *mLhsNodes[n];
+            const LeafNodeType * rhsNodePt = rhsAcc.probeConstLeaf(lhsNode.origin());
+            if (!rhsNodePt) continue;
+
+            for (Iterator it = lhsNode.beginValueOn(); it; ++it) {
+                ValueType& val = const_cast<ValueType&>(it.getValue());
+                val = std::min(val, offset + rhsNodePt->getValue(it.pos()));
+            }
+        }
+    }
+
+private:
+    LeafNodeType    *       * const mLhsNodes;
+    TreeType          const * const mRhsTree;
+    ValueType                 const mOffset;
+}; // struct OffsetAndMinComp
+
+
+template<typename GridType, typename InterrupterType>
+inline void
+normalizeLevelSet(GridType& grid, const int halfWidthInVoxels, InterrupterType* interrupt = NULL)
+{
+    openvdb::tools::LevelSetFilter<GridType, GridType, InterrupterType> filter(grid, interrupt);
+    filter.setSpatialScheme(openvdb::math::FIRST_BIAS);
+    filter.setNormCount(halfWidthInVoxels);
+    filter.normalize();
+    filter.prune();
+}
+
+// https://github.com/dreamworksanimation/openvdb/blob/a7a1abde7c955d5a83acac2c82341497d73576c2/openvdb/tools/TopologyToLevelSet.h
+template<typename GridType, typename InterrupterType>
+inline void
+smoothLevelSet(GridType& grid, int iterations, int halfBandWidthInVoxels, InterrupterType* interrupt = NULL)
+{
+    typedef typename GridType::ValueType        ValueType;
+    typedef typename GridType::TreeType         TreeType;
+    typedef typename TreeType::LeafNodeType     LeafNodeType;
+
+    GridType filterGrid(grid);
+
+    openvdb::tools::LevelSetFilter<GridType, GridType, InterrupterType> filter(filterGrid, interrupt);
+    filter.setSpatialScheme(openvdb::math::FIRST_BIAS);
+
+    for (int n = 0; n < iterations; ++n) {
+        if (interrupt && interrupt->wasInterrupted()) break;
+        filter.mean(1);
+    }
+
+    std::vector<LeafNodeType*> nodes;
+    grid.tree().getNodes(nodes);
+
+    const ValueType offset = ValueType(double(0.01) * grid.transform().voxelSize()[0]);
+
+    tbb::parallel_for(tbb::blocked_range<size_t>(0, nodes.size()),
+        OffsetAndMinComp<TreeType>(nodes, filterGrid.tree(), -offset));
+
+    (void) halfBandWidthInVoxels;
+    // Clean up any damanage that was done by the min operation
+    normalizeLevelSet(grid, halfBandWidthInVoxels, interrupt);
+}
+
+void makeMesh(Sphairahedron sphairahedron, Vec3f sliceStep, int smoothIterations) {
     bool flipNormal = false;
-    int smoothIterations = 0;
     bool enableAdaptiveMeshing = false;
     float adaptivity = 0.0f;
     float isovalue = 0.f;
@@ -432,7 +547,8 @@ void makeMesh(Sphairahedron sphairahedron, Vec3f sliceStep) {
 
     if (smoothIterations > 0) {
         openvdb::util::NullInterrupter interrupt;
-        //smoothLevelSet(*grid, smoothIterations, halfWidth, &interrupt);
+        const float halfWidth = 2.0 * sliceStep.x();
+        smoothLevelSet(*grid, smoothIterations, halfWidth, &interrupt);
     }
 
     if (enableAdaptiveMeshing) {
@@ -460,6 +576,22 @@ Sphairahedron createSphairahedronFromJson(nlohmann::json jsonObj) {
                                  data["r"].get<float>()));
     }
 
+    std::vector<Sphere> finiteSpheres;
+    for (auto data: jsonObj["finiteSpheres"]) {
+        finiteSpheres.push_back(Sphere(Vec3f(data["center"][0],
+                                             data["center"][1],
+                                             data["center"][2]),
+                                       data["r"].get<float>()));
+    }
+
+    std::vector<Sphere> convexSpheres;
+    for (auto data: jsonObj["convexSpheres"]) {
+        convexSpheres.push_back(Sphere(Vec3f(data["center"][0],
+                                             data["center"][1],
+                                             data["center"][2]),
+                                       data["r"].get<float>()));
+    }
+
     std::vector<Plane> planes;
     for (auto data: jsonObj["prismPlanes"]) {
         planes.push_back(Plane(Vec3f(data["p1"][0],
@@ -478,33 +610,44 @@ Sphairahedron createSphairahedronFromJson(nlohmann::json jsonObj) {
         Vec3f normal(data["normal"][0],
                      data["normal"][1],
                      data["normal"][2]);
-        boundingPlanes.push_back(Plane(origin + 0.001f * normal, normal));
+        boundingPlanes.push_back(Plane(origin, normal));
     }
 
     std::vector<Plane> dividePlanes;
     for (auto data: jsonObj["dividePlanes"]) {
         dividePlanes.push_back(Plane(Vec3f(data["p1"][0],
-                                             data["p1"][1],
-                                             data["p1"][2]),
-                                       Vec3f(data["normal"][0],
-                                             data["normal"][1],
-                                             data["normal"][2])));
+                                           data["p1"][1],
+                                           data["p1"][2]),
+                                     Vec3f(data["normal"][0],
+                                           data["normal"][1],
+                                           data["normal"][2])));
     }
 
+    std::cout << "bbox min (" << bboxMin.x() << ", "
+              << bboxMin.y() << ", "
+              << bboxMin.z()  << ") "<< std::endl;
+    std::cout << "bbox max (" << bboxMax.x() << ", "
+              << bboxMax.y() << ", "
+              << bboxMax.z()  << ") "<< std::endl;
     std::cout << "number of prism spheres " << spheres.size() << std::endl;
     std::cout << "number of prism planes " << planes.size() << std::endl;
 
     return Sphairahedron(bboxMin, bboxMax,
                          spheres, planes,
                          boundingPlanes,
-                         dividePlanes);
+                         dividePlanes,
+                         finiteSpheres,
+                         convexSpheres);
 }
 
 // Hello World for OpenVDB
 // http://www.openvdb.org/documentation/doxygen/codeExamples.html
 int main(int argc, char** argv) {
     args::ArgumentParser parser("Generate mesh.");
-    args::Positional<std::string> inputJson(parser, "input", "Input json file", {"scene.json"});
+    args::ValueFlag<float> sliceStep(parser, "step", "slice step", {"s", "sliceStep"}, 0.01f);
+    args::ValueFlag<std::string> inputJson(parser, "input", "Input json file", {"i", "input"}, "scene.json");
+    args::ValueFlag<int> smoothIterations(parser, "smoothIterations", "Iterations of smoothing", {"smooth"}, 0);
+    args::HelpFlag help(parser, "help", "Display this help menu", {'h', "help"});
 
     try {
         parser.ParseCLI(argc, argv);
@@ -533,6 +676,8 @@ int main(int argc, char** argv) {
     ifs >> jsonObj;
     ifs.close();
 
+    std::cout << "slice step: " << args::get(sliceStep) << std::endl;
+    std::cout << "smooth iterations: " << args::get(smoothIterations) << std::endl;
     Sphairahedron s = createSphairahedronFromJson(jsonObj);
-    makeMesh(s, Vec3f(0.01));
+    makeMesh(s, Vec3f(args::get(sliceStep)), args::get(smoothIterations));
 }
