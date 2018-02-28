@@ -235,6 +235,9 @@ public:
         if (d > 0.0) {
             minDist = std::min(d, minDist);
             outside = true;
+        } else if (abs(d) < 0.0001) {
+            inside = true;
+            maxDist = std::max(d, maxDist);
         }
         pos = pos + Vec3f(0, bboxMin.y(), 0);
 
@@ -637,7 +640,6 @@ void makeMesh(Sphairahedron sphairahedron, Vec3f sliceStep, int smoothIterations
     }
 
     grid->tree().print(std::cout, 4);
-    writeGrid(grid, "IISVolume");
 
     std::vector<openvdb::Vec3s> points;
     std::vector<openvdb::Vec4I> quads;
