@@ -242,14 +242,12 @@ public:
                       [&](Plane p){
                           pos = pos - p.origin;
                           const float d = vdot(pos, p.normal);
-                          if (abs(d) < 0.0001) {
-                              if (d > 0.) {
-                                  outside = true;
-                                  minDist = std::min(d, minDist);
-                              } else {
-                                  inside = true;
-                                  maxDist = std::max(d, maxDist);
-                              }
+                          if (d > 0.) {
+                              outside = true;
+                              minDist = std::min(d, minDist);
+                          } else if (abs(d) < 0.0001) {
+                              inside = true;
+                              maxDist = std::max(d, maxDist);
                           }
                           pos = pos + p.origin;
                       });
