@@ -10,6 +10,13 @@
 #include <vector>
 #include <cmath>
 #include <limits>
+#include <regex>
+
+std::vector<std::string> split(std::string&& s, std::regex&& pattern) {
+    std::sregex_token_iterator first(s.begin(), s.end(), pattern, -1);
+    std::sregex_token_iterator last;
+    return std::vector<std::string>(first, last);
+}
 
 template <typename T>
 class Vec3 {
@@ -626,8 +633,9 @@ smoothLevelSet(GridType& grid, int iterations, int halfBandWidthInVoxels, Interr
     normalizeLevelSet(grid, halfBandWidthInVoxels, interrupt);
 }
 
-void makeMesh(Sphairahedron sphairahedron, Vec3f sliceStep, int smoothIterations, bool isFinite) {
-    bool flipNormal = true;
+void makeMesh(Sphairahedron sphairahedron, std::string outputBasename,
+              Vec3f sliceStep, int smoothIterations, bool isFinite) {
+    bool flipNormal = false;
     bool enableAdaptiveMeshing = false;
     float adaptivity = 0.0f;
     float isovalue = 0.f;
@@ -660,8 +668,8 @@ void makeMesh(Sphairahedron sphairahedron, Vec3f sliceStep, int smoothIterations
 
     std::vector<openvdb::Vec3s> normals = computeNormals(grid, points, flipNormal);
 
-    writeGrid(grid, "IISVolumeProcessed");
-    writeObj("IIS", points, normals, quads, triangles);
+    writeGrid(grid, outputBasename);
+    writeObj(outputBasename, points, normals, quads, triangles);
 }
 
 Sphairahedron createSphairahedronFromJson(nlohmann::json jsonObj) {
@@ -751,8 +759,12 @@ Sphairahedron createSphairahedronFromJson(nlohmann::json jsonObj) {
 int main(int argc, char** argv) {
     args::ArgumentParser parser("Generate mesh.");
     args::ValueFlag<float> sliceStep(parser, "step", "slice step", {'s', "sliceStep"}, 0.01f);
-    args::ValueFlag<std::string> inputJson(parser, "input", "Input json file", {'i', "input"}, "scene.json");
-    args::ValueFlag<int> smoothIterations(parser, "smoothIterations", "Iterations of smoothing", {"smooth"}, 0);
+    args::ValueFlag<std::string> inputJson(parser, "input", "Input json file",
+                                           {'i', "input"}, "scene.json");
+    args::ValueFlag<std::string> outputBasenameArg(parser, "outputBasename", "Base name of output files (.vdb, .obj)",
+                                                   {'o', "out"});
+    args::ValueFlag<int> smoothIterations(parser, "smoothIterations", "Iterations of smoothing",
+                                          {"smooth"}, 0);
     args::Flag isFinite(parser, "isFinite", "Generate finite limit set", {'f', "finite"});
     args::HelpFlag help(parser, "help", "Display this help menu", {'h', "help"});
 
@@ -783,8 +795,17 @@ int main(int argc, char** argv) {
     ifs >> jsonObj;
     ifs.close();
 
+    std::string outputBasename;
+    if(!outputBasenameArg) {
+        std::vector<std::string> tmp = split(std::move(inputJsonFileName), std::regex("//"));
+        outputBasename = split(std::move(tmp[tmp.size() - 1]), std::regex("\\."))[0];
+    } else {
+        outputBasename = args::get(outputBasenameArg);
+    }
+
+    std::cout << outputBasename << std::endl;
     std::cout << "slice step: " << args::get(sliceStep) << std::endl;
     std::cout << "smooth iterations: " << args::get(smoothIterations) << std::endl;
     Sphairahedron s = createSphairahedronFromJson(jsonObj);
-    makeMesh(s, Vec3f(args::get(sliceStep)), args::get(smoothIterations), isFinite);
+    makeMesh(s, outputBasename, Vec3f(args::get(sliceStep)), args::get(smoothIterations), isFinite);
 }
