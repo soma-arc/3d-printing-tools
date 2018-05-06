@@ -22,13 +22,13 @@ workspace "GenTexWorkspace"
       files { sources }
 
       if os.is("Linux") then
-         links { "GL", "glfw" }
+         links { "GL", "GLEW", "glfw" }
       end
 
       configuration "Debug"
          defines { "DEBUG" } -- -DDEBUG
          symbols "On"
-         targetname "genMesh_debug"
+         targetname "genTex_debug"
 
       configuration "Release"
          -- defines { "NDEBUG" } -- -NDEBUG
