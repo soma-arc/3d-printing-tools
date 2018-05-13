@@ -9,6 +9,7 @@
 
 #include "shape.h"
 #include "args.hxx"
+#include "vec3.h"
 
 #define TINYOBJLOADER_IMPLEMENTATION
 #include "./tiny_obj_loader.h"
@@ -17,9 +18,9 @@
 #include "stb_image_write.h"
 
 constexpr Object::Vertex rectangleVertex[] = {
-    { -0.5f, -0.5f },
-    { 0.5f, -0.5f },
-    { 0.5f, 0.5f }
+    { -0.5f, -0.5f, 0.0f, 0.0f, 0.0f },
+    { 0.5f, -0.5f, 0.0f, 0.0f, 0.8f },
+    { 0.5f, 0.5f, 0.0f, 0.8f, 0.0f }
 };
 
 // LoadShader and LinkShader functions are from exrview
@@ -90,6 +91,82 @@ bool LinkShader(
     return true;
 }
 
+// void LoadObj(std::string objFilename) {
+//     tinyobj::attrib_t attrib;
+//     std::vector<tinyobj::shape_t> shapes;
+//     std::vector<tinyobj::material_t> materials;
+
+//     std::string err;
+
+//     std::cout << "Load " << objFilename << std::endl;
+    
+//     bool ret = tinyobj::LoadObj(&attrib, &shapes, &materials, &err, objFilename);
+
+//     if (!err.empty()) { // `err` may contain warning message.
+//         std::cerr << err << std::endl;
+//     }
+
+//     if (!ret) {
+//         std::cerr << "Failed to load " << objFilename << std::endl;
+//         exit(1);
+//     }
+
+//     printf("# of vertices  = %d\n", (int) (attrib.vertices.size()) / 3);
+//     printf("# of normals   = %d\n", (int) (attrib.normals.size()) / 3);
+//     printf("# of texcoords = %d\n", (int) (attrib.texcoords.size()) / 2);
+//     printf("# of materials = %d\n", (int) materials.size());
+//     printf("# of shapes    = %d\n", (int) shapes.size());
+//     printf("\n");
+
+//     unsigned char *textureData = new unsigned char[texSize * texSize * 3];
+//     for (size_t s = 0; s < shapes.size(); s++) {
+//         printf("Shape %d\n", (int) shapes.size());
+//         printf("# of faces %d\n", (int) shapes[s].mesh.num_face_vertices.size());
+//         size_t index_offset = 0;
+//         for (size_t f = 0; f < shapes[s].mesh.num_face_vertices.size(); f++) {
+//             // The number of vertexes in the face. 3, 4 or 5?
+//             int fv = shapes[s].mesh.num_face_vertices[f];
+//             if(fv > 3) {
+//                 printf("quad!!");
+//                 continue;
+//             }
+
+//             std::vector<Vec3f> faceVert;
+//             std::vector<Vec3f> faceUv;
+//             Vec3f uvMin(2, 0, 2);
+//             Vec3f uvMax(-1, 0, -1);
+//             // Loop over vertices in the face.
+//             for (int v = 0; v < fv; v++) {
+//                 // access to vertex
+//                 tinyobj::index_t idx = shapes[s].mesh.indices[index_offset + v];
+//                 tinyobj::real_t vx = attrib.vertices[3*idx.vertex_index+0];
+//                 tinyobj::real_t vy = attrib.vertices[3*idx.vertex_index+1];
+//                 tinyobj::real_t vz = attrib.vertices[3*idx.vertex_index+2];
+//                 tinyobj::real_t nx = attrib.normals[3*idx.normal_index+0];
+//                 tinyobj::real_t ny = attrib.normals[3*idx.normal_index+1];
+//                 tinyobj::real_t nz = attrib.normals[3*idx.normal_index+2];
+//                 tinyobj::real_t tx = attrib.texcoords[2*idx.texcoord_index+0];
+//                 tinyobj::real_t ty = attrib.texcoords[2*idx.texcoord_index+1];
+//                 faceVert.push_back(Vec3f(vx, vy, vz));
+//                 faceUv.push_back(Vec3f(tx, 0, ty));
+//                 uvMin[0] = std::min(tx, uvMin[0]);
+//                 uvMin[2] = std::min(ty, uvMin[2]);
+//                 uvMax[0] = std::max(tx, uvMax[0]);
+//                 uvMax[2] = std::max(ty, uvMax[2]);
+//             }
+//             index_offset += fv;
+
+//             printf("(%f, %f), (%f, %f), (%f, %f)\n",
+//                    faceUv[0].x(), faceUv[0].z(),
+//                    faceUv[1].x(), faceUv[1].z(),
+//                    faceUv[2].x(), faceUv[2].z());
+//             printf("BBox (%f, %f) ~ (%f, %f)\n",
+//                    uvMin.x(), uvMin.z(),
+//                    uvMax.x(), uvMax.z());
+//         }
+//     }
+// }
+
 int main(int argc, char** argv) {
     args::ArgumentParser parser("Generate mesh.");
     args::ValueFlag<float> sliceStep(parser, "step", "slice step", {'s', "sliceStep"}, 0.01f);
@@ -158,14 +235,15 @@ int main(int argc, char** argv) {
         }
     }
 
-    glBindAttribLocation(prog_id, 0, "position");
+    glBindAttribLocation(prog_id, 0, "uv");
+    glBindAttribLocation(prog_id, 1, "position");
     glBindFragDataLocation(prog_id, 0, "fragment");
     glUseProgram(prog_id);
 
     glfwSwapInterval(1);
     glClearColor(0.f, 0.f, 0.f, 1.f);
 
-    std::unique_ptr<const Shape> shape(new Shape(2, 4, rectangleVertex));
+    std::unique_ptr<const Shape> shape(new Shape(2, 3, rectangleVertex));
 
     /* Loop until the user closes the window */
     while (!glfwWindowShouldClose(window))

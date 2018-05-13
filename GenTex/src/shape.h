@@ -7,15 +7,13 @@ class Shape {
 
 protected:
     const GLsizei vertexcount;
-
 public:
     // コンストラクタ
     // size: 頂点の位置の次元
     // vertexcount: 頂点の数
     // vertex: 頂点属性を格納した配列
     Shape(GLint size, GLsizei vertexcount, const Object::Vertex *vertex)
-        : object(new Object(size, vertexcount, vertex))
-        , vertexcount(vertexcount)
+        : object(new Object(size, vertexcount, vertex)), vertexcount(vertexcount)
         {}
 
     void draw() const {
