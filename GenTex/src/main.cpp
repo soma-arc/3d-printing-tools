@@ -99,7 +99,7 @@ bool LinkShader(
 //     std::string err;
 
 //     std::cout << "Load " << objFilename << std::endl;
-    
+
 //     bool ret = tinyobj::LoadObj(&attrib, &shapes, &materials, &err, objFilename);
 
 //     if (!err.empty()) { // `err` may contain warning message.
@@ -174,10 +174,26 @@ int main(int argc, char** argv) {
                                           {'i', "input"}, "scene.obj");
     args::ValueFlag<std::string> inputJson(parser, "json", "Input json file",
                                            {'j', "json"}, "scene.json");
-    args::ValueFlag<std::string> outputBasenameArg(parser, "outputBasename", "Base name of output files (.vdb, .obj)",
-                                                   {'o', "out"});
+    args::ValueFlag<std::string> outputBasenameArg(parser, "outputBasename",
+                                                   "Base name of output files (.png)",
+                                                   {'o', "out"}, "texture");
     args::Flag isFinite(parser, "isFinite", "Generate finite limit set", {'f', "finite"});
     args::HelpFlag help(parser, "help", "Display this help menu", {'h', "help"});
+
+    try {
+        parser.ParseCLI(argc, argv);
+    } catch (args::Help) {
+        std::cout << parser;
+        return 0;
+    } catch (args::ParseError e) {
+        std::cerr << e.what() << std::endl;
+        std::cerr << parser;
+        return 1;
+    } catch (args::ValidationError e) {
+        std::cerr << e.what() << std::endl;
+        std::cerr << parser;
+        return 1;
+    }
 
     GLFWwindow* window;
 
@@ -187,13 +203,17 @@ int main(int argc, char** argv) {
 
     atexit(glfwTerminate);
 
+    const int windowWidth = 640;
+    const int windowHeight = 640;
+
     /* Create a windowed mode window and its OpenGL context */
     glfwWindowHint(GLFW_CONTEXT_VERSION_MAJOR, 3);
     glfwWindowHint(GLFW_CONTEXT_VERSION_MINOR, 2);
     glfwWindowHint(GLFW_OPENGL_FORWARD_COMPAT, GL_TRUE);
     glfwWindowHint(GLFW_OPENGL_PROFILE, GLFW_OPENGL_CORE_PROFILE);
     // glfwWindowHint( GLFW_VISIBLE, 0 );
-    window = glfwCreateWindow(640, 640, "Hello World", NULL, NULL);
+    window = glfwCreateWindow(windowWidth, windowHeight,
+                              "Hello World", NULL, NULL);
     if (!window)
     {
         return -1;
@@ -246,7 +266,7 @@ int main(int argc, char** argv) {
     std::unique_ptr<const Shape> shape(new Shape(2, 3, rectangleVertex));
 
     /* Loop until the user closes the window */
-    while (!glfwWindowShouldClose(window))
+      while (!glfwWindowShouldClose(window))
     {
         /* Render here */
         glClear(GL_COLOR_BUFFER_BIT);
@@ -259,6 +279,26 @@ int main(int argc, char** argv) {
         /* Poll for and process events */
         glfwPollEvents();
     }
+
+    glReadBuffer( GL_BACK );
+    unsigned char *textureData = new unsigned char[windowWidth * windowHeight * 3];
+    std::fill(textureData, textureData + windowWidth * windowHeight * 3, 0);
+
+    glReadPixels(
+        0,
+        0,
+        windowWidth,
+        windowHeight,
+        GL_RGB,
+        GL_UNSIGNED_BYTE,
+        textureData
+	);
+
+    std::string filename = args::get(outputBasenameArg) + ".png";
+    stbi_write_png(filename.c_str(), windowWidth, windowHeight,
+                   3, textureData,
+                   0);
+    delete[] textureData;
 
     return 0;
 }
