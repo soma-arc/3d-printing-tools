@@ -6,9 +6,10 @@
 #include <GL/glew.h>
 #include <GLFW/glfw3.h>
 #include <memory>
+#include "args.hxx"
+#include "nlohmann/json.hpp"
 
 #include "shape.h"
-#include "args.hxx"
 #include "vec3.h"
 
 #define TINYOBJLOADER_IMPLEMENTATION
@@ -22,6 +23,162 @@ constexpr Object::Vertex rectangleVertex[] = {
     { 0.5f, -0.5f, 0.0f, 0.0f, 0.8f },
     { 0.5f, 0.5f, 0.0f, 0.8f, 0.0f }
 };
+
+
+class Sphere {
+public:
+    Sphere() {}
+    Sphere(Vec3f _center, float _r) {
+        center = _center;
+        r = _r;
+    }
+
+    void invert(Vec3f &pos, float &dr) {
+        Vec3f diff = pos - center;
+        float lenSq = vdot(diff, diff);
+        float k = (r * r) / lenSq;
+        dr *= k; // (r * r) / lenSq
+        pos = diff * k + center;
+    }
+
+    float distance(const Vec3f pos) {
+        return vdistance(pos, center) - r;
+    }
+
+    Vec3f center;
+    float r;
+};
+
+class Plane {
+public:
+    Plane(Vec3f _origin, Vec3f _normal) {
+        origin = _origin;
+        normal = _normal;
+    }
+
+    float distance(const Vec3f pos) {
+        return vdot(pos - origin, normal);
+    }
+
+    Vec3f origin;
+    Vec3f normal;
+};
+
+class Sphairahedron {
+public:
+    Sphairahedron(Vec3f _bboxMin, Vec3f _bboxMax,
+                  std::vector<Sphere> _spheres,
+                  std::vector<Plane> _planes,
+                  std::vector<Plane> _boundingPlanes,
+                  std::vector<Plane> _dividePlanes,
+                  std::vector<Sphere> _finiteSpheres,
+                  std::vector<Sphere> _convexSpheres,
+                  Sphere _boundingSphere) {
+        bboxMin = _bboxMin;
+        bboxMax = _bboxMax;
+        spheres = _spheres;
+        planes = _planes;
+        boundingPlanes = _boundingPlanes;
+        dividePlanes = _dividePlanes;
+        finiteSpheres = _finiteSpheres;
+        convexSpheres = _convexSpheres;
+        boundingSphere = _boundingSphere;
+    }
+
+    Vec3f bboxMin;
+    Vec3f bboxMax;
+    std::vector<Plane> boundingPlanes;
+    std::vector<Sphere> spheres;
+    std::vector<Plane> planes;
+    std::vector<Plane> dividePlanes;
+
+    std::vector<Sphere> finiteSpheres;
+    std::vector<Sphere> convexSpheres;
+    Sphere boundingSphere;
+    const int MAX_IIS_ITER_COUNT = 10000;
+};
+
+Sphairahedron CreateSphairahedronFromJson(nlohmann::json jsonObj) {
+    Vec3f bboxMin(jsonObj["bboxMin"][0], jsonObj["bboxMin"][1], jsonObj["bboxMin"][2]);
+    Vec3f bboxMax(jsonObj["bboxMax"][0], jsonObj["bboxMax"][1], jsonObj["bboxMax"][2]);
+
+    std::vector<Sphere> spheres;
+    for (auto data: jsonObj["prismSpheres"]) {
+        spheres.push_back(Sphere(Vec3f(data["center"][0],
+                                       data["center"][1],
+                                       data["center"][2]),
+                                 data["r"].get<float>()));
+    }
+
+    std::vector<Sphere> finiteSpheres;
+    for (auto data: jsonObj["finiteSpheres"]) {
+        finiteSpheres.push_back(Sphere(Vec3f(data["center"][0],
+                                             data["center"][1],
+                                             data["center"][2]),
+                                       data["r"].get<float>()));
+    }
+
+    Sphere boundingSphere(Vec3f(jsonObj["boundingSphere"]["center"][0],
+                                jsonObj["boundingSphere"]["center"][1],
+                                jsonObj["boundingSphere"]["center"][2]),
+                          jsonObj["boundingSphere"]["r"].get<float>());
+
+    std::vector<Sphere> convexSpheres;
+    for (auto data: jsonObj["convexSpheres"]) {
+        convexSpheres.push_back(Sphere(Vec3f(data["center"][0],
+                                             data["center"][1],
+                                             data["center"][2]),
+                                       data["r"].get<float>()));
+    }
+
+    std::vector<Plane> planes;
+    for (auto data: jsonObj["prismPlanes"]) {
+        planes.push_back(Plane(Vec3f(data["p1"][0],
+                                     data["p1"][1],
+                                     data["p1"][2]),
+                               Vec3f(data["normal"][0],
+                                     data["normal"][1],
+                                     data["normal"][2])));
+    }
+
+    std::vector<Plane> boundingPlanes;
+    for (auto data: jsonObj["boundingPlanes"]) {
+        Vec3f origin(data["p1"][0],
+                     data["p1"][1],
+                     data["p1"][2]);
+        Vec3f normal(data["normal"][0],
+                     data["normal"][1],
+                     data["normal"][2]);
+        boundingPlanes.push_back(Plane(origin, normal));
+    }
+
+    std::vector<Plane> dividePlanes;
+    for (auto data: jsonObj["dividePlanes"]) {
+        dividePlanes.push_back(Plane(Vec3f(data["p1"][0],
+                                           data["p1"][1],
+                                           data["p1"][2]),
+                                     Vec3f(data["normal"][0],
+                                           data["normal"][1],
+                                           data["normal"][2])));
+    }
+
+    std::cout << "bbox min (" << bboxMin.x() << ", "
+              << bboxMin.y() << ", "
+              << bboxMin.z()  << ") "<< std::endl;
+    std::cout << "bbox max (" << bboxMax.x() << ", "
+              << bboxMax.y() << ", "
+              << bboxMax.z()  << ") "<< std::endl;
+    std::cout << "number of prism spheres " << spheres.size() << std::endl;
+    std::cout << "number of prism planes " << planes.size() << std::endl;
+
+    return Sphairahedron(bboxMin, bboxMax,
+                         spheres, planes,
+                         boundingPlanes,
+                         dividePlanes,
+                         finiteSpheres,
+                         convexSpheres,
+                         boundingSphere);
+}
 
 // LoadShader and LinkShader functions are from exrview
 // https://github.com/syoyo/tinyexr/tree/master/examples/exrview
@@ -194,6 +351,18 @@ int main(int argc, char** argv) {
         std::cerr << parser;
         return 1;
     }
+
+    std::string inputJsonFileName = args::get(inputJson);
+
+    std::ifstream ifs(inputJsonFileName);
+    nlohmann::json jsonObj;
+    if (!ifs) {
+        std::cout << "Can't open " << inputJsonFileName << std::endl;
+        return 1;
+    }
+    ifs >> jsonObj;
+    ifs.close();
+    Sphairahedron sphairahedron = CreateSphairahedronFromJson(jsonObj);
 
     GLFWwindow* window;
 
