@@ -95,7 +95,6 @@ public:
     std::vector<Sphere> finiteSpheres;
     std::vector<Sphere> convexSpheres;
     Sphere boundingSphere;
-    const int MAX_IIS_ITER_COUNT = 10000;
 };
 
 Sphairahedron CreateSphairahedronFromJson(nlohmann::json jsonObj) {
@@ -248,81 +247,73 @@ bool LinkShader(
     return true;
 }
 
-// void LoadObj(std::string objFilename) {
-//     tinyobj::attrib_t attrib;
-//     std::vector<tinyobj::shape_t> shapes;
-//     std::vector<tinyobj::material_t> materials;
+std::vector<Object::Vertex> LoadObj(std::string objFilename) {
+    std::vector<Object::Vertex>  vertexList;
 
-//     std::string err;
+    tinyobj::attrib_t attrib;
+    std::vector<tinyobj::shape_t> shapes;
+    std::vector<tinyobj::material_t> materials;
 
-//     std::cout << "Load " << objFilename << std::endl;
+    std::string err;
 
-//     bool ret = tinyobj::LoadObj(&attrib, &shapes, &materials, &err, objFilename);
+    std::cout << "Load " << objFilename << std::endl;
 
-//     if (!err.empty()) { // `err` may contain warning message.
-//         std::cerr << err << std::endl;
-//     }
+    bool ret = tinyobj::LoadObj(&attrib, &shapes, &materials, &err, objFilename.c_str());
 
-//     if (!ret) {
-//         std::cerr << "Failed to load " << objFilename << std::endl;
-//         exit(1);
-//     }
+    if (!err.empty()) { // `err` may contain warning message.
+        std::cerr << err << std::endl;
+    }
 
-//     printf("# of vertices  = %d\n", (int) (attrib.vertices.size()) / 3);
-//     printf("# of normals   = %d\n", (int) (attrib.normals.size()) / 3);
-//     printf("# of texcoords = %d\n", (int) (attrib.texcoords.size()) / 2);
-//     printf("# of materials = %d\n", (int) materials.size());
-//     printf("# of shapes    = %d\n", (int) shapes.size());
-//     printf("\n");
+    if (!ret) {
+        std::cerr << "Failed to load " << objFilename << std::endl;
+        exit(1);
+    }
 
-//     unsigned char *textureData = new unsigned char[texSize * texSize * 3];
-//     for (size_t s = 0; s < shapes.size(); s++) {
-//         printf("Shape %d\n", (int) shapes.size());
-//         printf("# of faces %d\n", (int) shapes[s].mesh.num_face_vertices.size());
-//         size_t index_offset = 0;
-//         for (size_t f = 0; f < shapes[s].mesh.num_face_vertices.size(); f++) {
-//             // The number of vertexes in the face. 3, 4 or 5?
-//             int fv = shapes[s].mesh.num_face_vertices[f];
-//             if(fv > 3) {
-//                 printf("quad!!");
-//                 continue;
-//             }
+    printf("# of vertices  = %d\n", (int) (attrib.vertices.size()) / 3);
+    printf("# of normals   = %d\n", (int) (attrib.normals.size()) / 3);
+    printf("# of texcoords = %d\n", (int) (attrib.texcoords.size()) / 2);
+    printf("# of materials = %d\n", (int) materials.size());
+    printf("# of shapes    = %d\n", (int) shapes.size());
+    printf("\n");
 
-//             std::vector<Vec3f> faceVert;
-//             std::vector<Vec3f> faceUv;
-//             Vec3f uvMin(2, 0, 2);
-//             Vec3f uvMax(-1, 0, -1);
-//             // Loop over vertices in the face.
-//             for (int v = 0; v < fv; v++) {
-//                 // access to vertex
-//                 tinyobj::index_t idx = shapes[s].mesh.indices[index_offset + v];
-//                 tinyobj::real_t vx = attrib.vertices[3*idx.vertex_index+0];
-//                 tinyobj::real_t vy = attrib.vertices[3*idx.vertex_index+1];
-//                 tinyobj::real_t vz = attrib.vertices[3*idx.vertex_index+2];
-//                 tinyobj::real_t nx = attrib.normals[3*idx.normal_index+0];
-//                 tinyobj::real_t ny = attrib.normals[3*idx.normal_index+1];
-//                 tinyobj::real_t nz = attrib.normals[3*idx.normal_index+2];
-//                 tinyobj::real_t tx = attrib.texcoords[2*idx.texcoord_index+0];
-//                 tinyobj::real_t ty = attrib.texcoords[2*idx.texcoord_index+1];
-//                 faceVert.push_back(Vec3f(vx, vy, vz));
-//                 faceUv.push_back(Vec3f(tx, 0, ty));
-//                 uvMin[0] = std::min(tx, uvMin[0]);
-//                 uvMin[2] = std::min(ty, uvMin[2]);
-//                 uvMax[0] = std::max(tx, uvMax[0]);
-//                 uvMax[2] = std::max(ty, uvMax[2]);
-//             }
-//             index_offset += fv;
+    for (size_t s = 0; s < shapes.size(); s++) {
+        printf("Shape %d\n", (int) shapes.size());
+        printf("# of faces %d\n", (int) shapes[s].mesh.num_face_vertices.size());
+        size_t index_offset = 0;
+        for (size_t f = 0; f < shapes[s].mesh.num_face_vertices.size(); f++) {
+            // The number of vertexes in the face. 3, 4 or 5?
+            int fv = shapes[s].mesh.num_face_vertices[f];
+            if(fv > 3) {
+                printf("quad!!");
+                continue;
+            }
 
-//             printf("(%f, %f), (%f, %f), (%f, %f)\n",
-//                    faceUv[0].x(), faceUv[0].z(),
-//                    faceUv[1].x(), faceUv[1].z(),
-//                    faceUv[2].x(), faceUv[2].z());
-//             printf("BBox (%f, %f) ~ (%f, %f)\n",
-//                    uvMin.x(), uvMin.z(),
-//                    uvMax.x(), uvMax.z());
-//         }
-//     }
-// }
+            Vec3f uvMin(2, 0, 2);
+            Vec3f uvMax(-1, 0, -1);
+            // Loop over vertices in the face.
+            for (int v = 0; v < fv; v++) {
+                // access to vertex
+                tinyobj::index_t idx = shapes[s].mesh.indices[index_offset + v];
+                tinyobj::real_t vx = attrib.vertices[3*idx.vertex_index+0];
+                tinyobj::real_t vy = attrib.vertices[3*idx.vertex_index+1];
+                tinyobj::real_t vz = attrib.vertices[3*idx.vertex_index+2];
+                tinyobj::real_t nx = attrib.normals[3*idx.normal_index+0];
+                tinyobj::real_t ny = attrib.normals[3*idx.normal_index+1];
+                tinyobj::real_t nz = attrib.normals[3*idx.normal_index+2];
+                tinyobj::real_t tx = attrib.texcoords[2*idx.texcoord_index+0];
+                tinyobj::real_t ty = attrib.texcoords[2*idx.texcoord_index+1];
+                uvMin[0] = std::min(tx, uvMin[0]);
+                uvMin[2] = std::min(ty, uvMin[2]);
+                uvMax[0] = std::max(tx, uvMax[0]);
+                uvMax[2] = std::max(ty, uvMax[2]);
+                vertexList.push_back({tx, ty, vx, vy, vz});
+            }
+            index_offset += fv;
+        }
+    }
+
+    return vertexList;
+}
 
 int main(int argc, char** argv) {
     args::ArgumentParser parser("Generate mesh.");
@@ -353,7 +344,6 @@ int main(int argc, char** argv) {
     }
 
     std::string inputJsonFileName = args::get(inputJson);
-
     std::ifstream ifs(inputJsonFileName);
     nlohmann::json jsonObj;
     if (!ifs) {
@@ -362,8 +352,11 @@ int main(int argc, char** argv) {
     }
     ifs >> jsonObj;
     ifs.close();
+    std::cerr << "create" << std::endl;
     Sphairahedron sphairahedron = CreateSphairahedronFromJson(jsonObj);
-
+    std::cerr << "load json" << std::endl;
+    std::vector<Object::Vertex> vertexList = LoadObj(args::get(inputObj));
+    std::cerr << "done" << std::endl;
     GLFWwindow* window;
 
     /* Initialize the library */
@@ -380,6 +373,8 @@ int main(int argc, char** argv) {
     glfwWindowHint(GLFW_CONTEXT_VERSION_MINOR, 2);
     glfwWindowHint(GLFW_OPENGL_FORWARD_COMPAT, GL_TRUE);
     glfwWindowHint(GLFW_OPENGL_PROFILE, GLFW_OPENGL_CORE_PROFILE);
+    glfwWindowHint(GLFW_SAMPLES, 10);
+    glEnable(GL_MULTISAMPLE);  
     // glfwWindowHint( GLFW_VISIBLE, 0 );
     window = glfwCreateWindow(windowWidth, windowHeight,
                               "Hello World", NULL, NULL);
@@ -432,7 +427,8 @@ int main(int argc, char** argv) {
     glfwSwapInterval(1);
     glClearColor(0.f, 0.f, 0.f, 1.f);
 
-    std::unique_ptr<const Shape> shape(new Shape(2, 3, rectangleVertex));
+    std::unique_ptr<const Shape> shape(new Shape(2, vertexList.size(),
+                                                 &vertexList[0]));
 
     /* Loop until the user closes the window */
       while (!glfwWindowShouldClose(window))
