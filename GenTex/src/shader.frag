@@ -13,7 +13,7 @@ struct Plane {
     vec3 normal;
 };
 
-uniform Sphere u_prismSpheres[8];
+uniform Sphere u_prismSpheres[4];
 uniform int u_numPrismSpheres;
 uniform Plane u_prismPlanes[4];
 uniform int u_numPrismPlanes;
@@ -21,7 +21,8 @@ uniform Plane u_boundingPlanes[8];
 uniform int u_numBoundingPlanes;
 uniform Sphere u_inversionSphere;
 uniform Sphere u_spheirahedraSpheres[8];
-// uniform Plane u_dividePlanes[1];
+uniform int u_numDividePlanes;
+uniform Plane u_dividePlanes[1];
 
 vec3 Hsv2rgb(float h, float s, float v){
     vec3 c = vec3(h, s, v);
@@ -80,5 +81,6 @@ float IIS(vec3 pos) {
 }
 
 void main() {
-    fragment = vec4(1., 1., 0., 1.0);
+    float n = float(IIS(vPosition));
+    fragment = vec4(Hsv2rgb(-0.13 + n * 0.01, 1., 1.), 1.0);
 }

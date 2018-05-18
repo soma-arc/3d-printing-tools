@@ -95,6 +95,70 @@ public:
     std::vector<Sphere> finiteSpheres;
     std::vector<Sphere> convexSpheres;
     Sphere boundingSphere;
+
+    std::vector<GLint> uniLocations;
+
+    void getUniLocations(GLint program) {
+        uniLocations.push_back(glGetUniformLocation(program, "u_numPrismSpheres"));
+        std::string si;
+        for (int i = 0; i < spheres.size(); i++) {
+            si = "u_prismSpheres["+ std::to_string(i) +"].center";
+            uniLocations.push_back(glGetUniformLocation(program, si.c_str()));
+            si = "u_prismSpheres["+ std::to_string(i) +"].r";
+            uniLocations.push_back(glGetUniformLocation(program, si.c_str()));
+        }
+
+        uniLocations.push_back(glGetUniformLocation(program, "u_numPrismPlanes"));
+        for (int i = 0; i < planes.size(); i++) {
+            si = "u_prismPlanes["+ std::to_string(i) +"].origin";
+            uniLocations.push_back(glGetUniformLocation(program, si.c_str()));
+            si = "u_prismPlanes["+ std::to_string(i) +"].normal";
+            uniLocations.push_back(glGetUniformLocation(program, si.c_str()));
+        }
+
+        uniLocations.push_back(glGetUniformLocation(program, "u_numBoundingPlanes"));
+        for (int i = 0; i < boundingPlanes.size(); i++) {
+            si = "u_boundingPlanes["+ std::to_string(i) +"].origin";
+            uniLocations.push_back(glGetUniformLocation(program, si.c_str()));
+            si = "u_boundingPlanes["+ std::to_string(i) +"].normal";
+            uniLocations.push_back(glGetUniformLocation(program, si.c_str()));
+        }
+
+        uniLocations.push_back(glGetUniformLocation(program, "u_numDividePlanes"));
+        for (int i = 0; i < dividePlanes.size(); i++) {
+            si = "u_dividePlanes["+ std::to_string(i) +"].origin";
+            uniLocations.push_back(glGetUniformLocation(program, si.c_str()));
+            si = "u_dividePlanes["+ std::to_string(i) +"].normal";
+            uniLocations.push_back(glGetUniformLocation(program, si.c_str()));
+        }
+    }
+
+    void setUniformValues() {
+        int i = 0;
+        glUniform1i(uniLocations[i++], spheres.size());
+        for (int i = 0; i < spheres.size(); i++) {
+            glUniform3f(uniLocations[i++], spheres[i].center[0], spheres[i].center[1], spheres[i].center[2]);
+            glUniform2f(uniLocations[i++], spheres[i].r, spheres[i].r * spheres[i].r);
+        }
+
+        glUniform1i(uniLocations[i++], planes.size());
+        for (int i = 0; i < planes.size(); i++) {
+            glUniform3f(uniLocations[i++], planes[i].origin[0], planes[i].origin[1], planes[i].origin[2]);
+            glUniform3f(uniLocations[i++], planes[i].normal[0], planes[i].normal[1], planes[i].normal[2]);
+        }
+
+        glUniform1i(uniLocations[i++], boundingPlanes.size());
+        for (int i = 0; i < boundingPlanes.size(); i++) {
+            glUniform3f(uniLocations[i++], boundingPlanes[i].origin[0], boundingPlanes[i].origin[1], boundingPlanes[i].origin[2]);
+            glUniform3f(uniLocations[i++], boundingPlanes[i].normal[0], boundingPlanes[i].normal[1], boundingPlanes[i].normal[2]);
+        }
+
+        glUniform1i(uniLocations[i++], dividePlanes.size());
+        for (int i = 0; i < dividePlanes.size(); i++) {
+            glUniform3f(uniLocations[i++], dividePlanes[i].origin[0], dividePlanes[i].origin[1], dividePlanes[i].origin[2]);
+            glUniform3f(uniLocations[i++], dividePlanes[i].normal[0], dividePlanes[i].normal[1], dividePlanes[i].normal[2]);
+        }
+    }
 };
 
 Sphairahedron CreateSphairahedronFromJson(nlohmann::json jsonObj) {
@@ -354,7 +418,7 @@ int main(int argc, char** argv) {
     ifs.close();
     std::cerr << "create" << std::endl;
     Sphairahedron sphairahedron = CreateSphairahedronFromJson(jsonObj);
-    std::cerr << "load json" << std::endl;
+    std::cerr << "Load json" << std::endl;
     std::vector<Object::Vertex> vertexList = LoadObj(args::get(inputObj));
     std::cerr << "done" << std::endl;
     GLFWwindow* window;
@@ -374,7 +438,7 @@ int main(int argc, char** argv) {
     glfwWindowHint(GLFW_OPENGL_FORWARD_COMPAT, GL_TRUE);
     glfwWindowHint(GLFW_OPENGL_PROFILE, GLFW_OPENGL_CORE_PROFILE);
     glfwWindowHint(GLFW_SAMPLES, 10);
-    glEnable(GL_MULTISAMPLE);  
+    glEnable(GL_MULTISAMPLE);
     // glfwWindowHint( GLFW_VISIBLE, 0 );
     window = glfwCreateWindow(windowWidth, windowHeight,
                               "Hello World", NULL, NULL);
@@ -426,6 +490,9 @@ int main(int argc, char** argv) {
 
     glfwSwapInterval(1);
     glClearColor(0.f, 0.f, 0.f, 1.f);
+
+    sphairahedron.getUniLocations(prog_id);
+    sphairahedron.setUniformValues();
 
     std::unique_ptr<const Shape> shape(new Shape(2, vertexList.size(),
                                                  &vertexList[0]));
