@@ -8,6 +8,7 @@ out vec3 vPosition;
 void main() {
     const vec2 one = vec2(1., 1.);
     coord = (uv.xy * 2 - one);
+    coord.y *= -1.;
     vPosition = position.xyz;
     gl_Position = vec4(coord, uv.zw);
 } 

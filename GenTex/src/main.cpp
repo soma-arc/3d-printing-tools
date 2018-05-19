@@ -19,9 +19,9 @@
 #include "stb_image_write.h"
 
 constexpr Object::Vertex rectangleVertex[] = {
-    { -0.5f, -0.5f, 0.0f, 0.0f, 0.0f },
-    { 0.5f, -0.5f, 0.0f, 0.0f, 0.8f },
-    { 0.5f, 0.5f, 0.0f, 0.8f, 0.0f }
+    { 0.0f, 0.5f, 1.0f, 0.0f, 0.0f },
+    { 0.5f, 0.0f, 0.0f, 0.0f, 0.8f },
+    { 0.5f, 1.0f, 0.0f, 0.8f, 0.0f }
 };
 
 
@@ -99,6 +99,7 @@ public:
     std::vector<GLint> uniLocations;
 
     void getUniLocations(GLint program) {
+        uniLocations = std::vector<GLint>();
         uniLocations.push_back(glGetUniformLocation(program, "u_numPrismSpheres"));
         std::string si;
         for (int i = 0; i < spheres.size(); i++) {
@@ -134,29 +135,52 @@ public:
     }
 
     void setUniformValues() {
-        int i = 0;
-        glUniform1i(uniLocations[i++], spheres.size());
+        int index = 0;
+        glUniform1i(uniLocations[index++], spheres.size());
         for (int i = 0; i < spheres.size(); i++) {
-            glUniform3f(uniLocations[i++], spheres[i].center[0], spheres[i].center[1], spheres[i].center[2]);
-            glUniform2f(uniLocations[i++], spheres[i].r, spheres[i].r * spheres[i].r);
+            glUniform3f(uniLocations[index++],
+                        spheres[i].center[0],
+                        spheres[i].center[1],
+                        spheres[i].center[2]);
+            glUniform2f(uniLocations[index++],
+                        spheres[i].r,
+                        spheres[i].r * spheres[i].r);
         }
 
-        glUniform1i(uniLocations[i++], planes.size());
+        glUniform1i(uniLocations[index++], planes.size());
         for (int i = 0; i < planes.size(); i++) {
-            glUniform3f(uniLocations[i++], planes[i].origin[0], planes[i].origin[1], planes[i].origin[2]);
-            glUniform3f(uniLocations[i++], planes[i].normal[0], planes[i].normal[1], planes[i].normal[2]);
+            glUniform3f(uniLocations[index++],
+                        planes[i].origin[0],
+                        planes[i].origin[1],
+                        planes[i].origin[2]);
+            glUniform3f(uniLocations[index++],
+                        planes[i].normal[0],
+                        planes[i].normal[1],
+                        planes[i].normal[2]);
         }
 
-        glUniform1i(uniLocations[i++], boundingPlanes.size());
+        glUniform1i(uniLocations[index++], boundingPlanes.size());
         for (int i = 0; i < boundingPlanes.size(); i++) {
-            glUniform3f(uniLocations[i++], boundingPlanes[i].origin[0], boundingPlanes[i].origin[1], boundingPlanes[i].origin[2]);
-            glUniform3f(uniLocations[i++], boundingPlanes[i].normal[0], boundingPlanes[i].normal[1], boundingPlanes[i].normal[2]);
+            glUniform3f(uniLocations[index++],
+                        boundingPlanes[i].origin[0],
+                        boundingPlanes[i].origin[1],
+                        boundingPlanes[i].origin[2]);
+            glUniform3f(uniLocations[index++],
+                        boundingPlanes[i].normal[0],
+                        boundingPlanes[i].normal[1],
+                        boundingPlanes[i].normal[2]);
         }
 
-        glUniform1i(uniLocations[i++], dividePlanes.size());
+        glUniform1i(uniLocations[index++], dividePlanes.size());
         for (int i = 0; i < dividePlanes.size(); i++) {
-            glUniform3f(uniLocations[i++], dividePlanes[i].origin[0], dividePlanes[i].origin[1], dividePlanes[i].origin[2]);
-            glUniform3f(uniLocations[i++], dividePlanes[i].normal[0], dividePlanes[i].normal[1], dividePlanes[i].normal[2]);
+            glUniform3f(uniLocations[index++],
+                        dividePlanes[i].origin[0],
+                        dividePlanes[i].origin[1],
+                        dividePlanes[i].origin[2]);
+            glUniform3f(uniLocations[index++],
+                        dividePlanes[i].normal[0],
+                        dividePlanes[i].normal[1],
+                        dividePlanes[i].normal[2]);
         }
     }
 };
@@ -340,6 +364,9 @@ std::vector<Object::Vertex> LoadObj(std::string objFilename) {
     printf("# of shapes    = %d\n", (int) shapes.size());
     printf("\n");
 
+    Vec3f vMin(99999., 99999., 99999.);
+    Vec3f vMax(-99999., -99999., -99999.);
+
     for (size_t s = 0; s < shapes.size(); s++) {
         printf("Shape %d\n", (int) shapes.size());
         printf("# of faces %d\n", (int) shapes[s].mesh.num_face_vertices.size());
@@ -371,10 +398,21 @@ std::vector<Object::Vertex> LoadObj(std::string objFilename) {
                 uvMax[0] = std::max(tx, uvMax[0]);
                 uvMax[2] = std::max(ty, uvMax[2]);
                 vertexList.push_back({tx, ty, vx, vy, vz});
+
+                vMin[0] = std::min(vx, vMin[0]);
+                vMin[1] = std::min(vy, vMin[1]);
+                vMin[2] = std::min(vz, vMin[2]);
+
+                vMax[0] = std::max(vx, vMax[0]);
+                vMax[1] = std::max(vy, vMax[1]);
+                vMax[2] = std::max(vz, vMax[2]);
             }
             index_offset += fv;
         }
     }
+
+    printf("min %f %f %f\n", vMin[0], vMin[1], vMin[2]);
+    printf("max %f %f %f\n", vMax[0], vMax[1], vMax[2]);
 
     return vertexList;
 }
@@ -491,14 +529,16 @@ int main(int argc, char** argv) {
     glfwSwapInterval(1);
     glClearColor(0.f, 0.f, 0.f, 1.f);
 
-    sphairahedron.getUniLocations(prog_id);
-    sphairahedron.setUniformValues();
-
+//    std::unique_ptr<const Shape> shape(new Shape(2, 3,
+//                                                 rectangleVertex));
     std::unique_ptr<const Shape> shape(new Shape(2, vertexList.size(),
                                                  &vertexList[0]));
 
+    sphairahedron.getUniLocations(prog_id);
+    sphairahedron.setUniformValues();
+
     /* Loop until the user closes the window */
-      while (!glfwWindowShouldClose(window))
+    while (!glfwWindowShouldClose(window))
     {
         /* Render here */
         glClear(GL_COLOR_BUFFER_BIT);

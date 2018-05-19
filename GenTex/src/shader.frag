@@ -59,7 +59,7 @@ float IIS(vec3 pos) {
                 SphereInvert(pos,
                              u_prismSpheres[n].center,
                              u_prismSpheres[n].r);
-                continue;
+                inFund = false;
             }
 		}
 
@@ -70,7 +70,7 @@ float IIS(vec3 pos) {
                 invNum++;
                 pos -= 2. * d * u_prismPlanes[n].normal;
                 pos += u_prismPlanes[n].origin;
-                continue;
+                inFund = false;
             }
             pos += u_prismPlanes[n].origin;
 		}
@@ -81,6 +81,14 @@ float IIS(vec3 pos) {
 }
 
 void main() {
-    float n = float(IIS(vPosition));
-    fragment = vec4(Hsv2rgb(-0.13 + n * 0.01, 1., 1.), 1.0);
+    vec3 v = vec3(-2.2,
+                  -0.1,
+                  -2.85788);
+    float n = IIS(vPosition + v);
+     if (n > 0.) {
+         fragment = vec4(Hsv2rgb(-0.13 + n * 0.01, 1., 1.), 1.0);
+     } else {
+         fragment = vec4(vPosition, 1.0);
+     }
+     //    fragment = vec4(vPosition, 1.0);
 }
