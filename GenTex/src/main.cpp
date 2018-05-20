@@ -24,6 +24,15 @@ constexpr Object::Vertex rectangleVertex[] = {
     { 0.5f, 1.0f, 0.0f, 0.8f, 0.0f }
 };
 
+inline Vec3f Hsv2rgb(float h, float s, float v){
+    Vec3f c = Vec3f(h, s, v);
+    const Vec3f hue(h, h, h);
+    const Vec3f K = Vec3f(1.0, 2.0 / 3.0, 1.0 / 3.0);
+    const Vec3f Kx_ONE = Vec3f(1, 1, 1);
+    const Vec3f Kw = Vec3f(3, 3, 3);
+    Vec3f p = vabs(vfract(hue + K) * 6.0 - Kw);
+    return c.z() * vmix(Kx_ONE, vclamp(p - Kx_ONE, 0.0f, 1.0f), c.y());
+}
 
 class Sphere {
 public:
@@ -117,21 +126,45 @@ public:
             uniLocations.push_back(glGetUniformLocation(program, si.c_str()));
         }
 
-        uniLocations.push_back(glGetUniformLocation(program, "u_numBoundingPlanes"));
-        for (int i = 0; i < boundingPlanes.size(); i++) {
-            si = "u_boundingPlanes["+ std::to_string(i) +"].origin";
-            uniLocations.push_back(glGetUniformLocation(program, si.c_str()));
-            si = "u_boundingPlanes["+ std::to_string(i) +"].normal";
-            uniLocations.push_back(glGetUniformLocation(program, si.c_str()));
+        uniLocations.push_back(glGetUniformLocation(program, "u_bboxMin"));
+    }
+
+    int iisInfSphairahedron(Vec3f pos) {
+        int invNum = 0;
+        float dr = 1.0;
+        for(int n = 0; n < MAX_IIS_ITER_COUNT; n++) {
+            bool inFund = true;
+            std::for_each(spheres.begin(), spheres.end(),
+                          [&](Sphere s){
+                              if (vdistance(pos, s.center) < s.r) {
+                                  s.invert(pos, dr);
+                                  invNum++;
+                                  inFund = false;
+                              }
+                          });
+            std::for_each(planes.begin(), planes.end(),
+                          [&](Plane p){
+                              pos = pos - p.origin;
+                              float d = vdot(pos, p.normal);
+                              if (d > 0.) {
+                                  pos = pos - 2.f * d * p.normal;
+                                  invNum++;
+                                  inFund = false;
+                              }
+                              pos = pos + p.origin;
+                          });
+            if (inFund) break;
         }
 
-        uniLocations.push_back(glGetUniformLocation(program, "u_numDividePlanes"));
-        for (int i = 0; i < dividePlanes.size(); i++) {
-            si = "u_dividePlanes["+ std::to_string(i) +"].origin";
-            uniLocations.push_back(glGetUniformLocation(program, si.c_str()));
-            si = "u_dividePlanes["+ std::to_string(i) +"].normal";
-            uniLocations.push_back(glGetUniformLocation(program, si.c_str()));
+        return invNum;
+    }
+
+    inline Vec3f computeColor (Vec3f pos) {
+        int invNum = iisInfSphairahedron(pos);
+        if (invNum == -1) {
+            return Vec3f(0, 0, 0);
         }
+        return Hsv2rgb((float(invNum) * 0.01), 1., 1.);
     }
 
     void setUniformValues() {
@@ -159,30 +192,10 @@ public:
                         planes[i].normal[2]);
         }
 
-        glUniform1i(uniLocations[index++], boundingPlanes.size());
-        for (int i = 0; i < boundingPlanes.size(); i++) {
-            glUniform3f(uniLocations[index++],
-                        boundingPlanes[i].origin[0],
-                        boundingPlanes[i].origin[1],
-                        boundingPlanes[i].origin[2]);
-            glUniform3f(uniLocations[index++],
-                        boundingPlanes[i].normal[0],
-                        boundingPlanes[i].normal[1],
-                        boundingPlanes[i].normal[2]);
-        }
-
-        glUniform1i(uniLocations[index++], dividePlanes.size());
-        for (int i = 0; i < dividePlanes.size(); i++) {
-            glUniform3f(uniLocations[index++],
-                        dividePlanes[i].origin[0],
-                        dividePlanes[i].origin[1],
-                        dividePlanes[i].origin[2]);
-            glUniform3f(uniLocations[index++],
-                        dividePlanes[i].normal[0],
-                        dividePlanes[i].normal[1],
-                        dividePlanes[i].normal[2]);
-        }
+        glUniform3f(uniLocations[index++], bboxMin[0], bboxMin[1], bboxMin[2]);
     }
+private:
+    int MAX_IIS_ITER_COUNT = 100;
 };
 
 Sphairahedron CreateSphairahedronFromJson(nlohmann::json jsonObj) {
@@ -335,7 +348,8 @@ bool LinkShader(
     return true;
 }
 
-std::vector<Object::Vertex> LoadObj(std::string objFilename) {
+std::vector<Object::Vertex> LoadObj(std::string objFilename,
+                                    Sphairahedron sphairahedron) {
     std::vector<Object::Vertex>  vertexList;
 
     tinyobj::attrib_t attrib;
@@ -457,7 +471,7 @@ int main(int argc, char** argv) {
     std::cerr << "create" << std::endl;
     Sphairahedron sphairahedron = CreateSphairahedronFromJson(jsonObj);
     std::cerr << "Load json" << std::endl;
-    std::vector<Object::Vertex> vertexList = LoadObj(args::get(inputObj));
+    std::vector<Object::Vertex> vertexList = LoadObj(args::get(inputObj), sphairahedron);
     std::cerr << "done" << std::endl;
     GLFWwindow* window;
 
@@ -542,7 +556,6 @@ int main(int argc, char** argv) {
     {
         /* Render here */
         glClear(GL_COLOR_BUFFER_BIT);
-
         shape->draw();
 
         /* Swap front and back buffers */

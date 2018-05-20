@@ -17,12 +17,12 @@ uniform Sphere u_prismSpheres[4];
 uniform int u_numPrismSpheres;
 uniform Plane u_prismPlanes[4];
 uniform int u_numPrismPlanes;
-uniform Plane u_boundingPlanes[8];
-uniform int u_numBoundingPlanes;
-uniform Sphere u_inversionSphere;
-uniform Sphere u_spheirahedraSpheres[8];
-uniform int u_numDividePlanes;
-uniform Plane u_dividePlanes[1];
+
+// uniform Sphere u_inversionSphere;
+// uniform Sphere u_spheirahedraSpheres[8];
+// uniform int u_numDividePlanes;
+// uniform Plane u_dividePlanes[1];
+uniform vec3 u_bboxMin;
 
 vec3 Hsv2rgb(float h, float s, float v){
     vec3 c = vec3(h, s, v);
@@ -39,17 +39,17 @@ vec4 GammaCorrect(vec4 rgba) {
                 rgba.a);
 }
 
-void SphereInvert(inout vec3 pos, vec3 center, vec2 r) {
+vec3 SphereInvert(inout vec3 pos, vec3 center, vec2 r) {
     vec3 diff = pos - center;
     float lenSq = dot(diff, diff);
     float k = r.y / lenSq;
     pos = (diff * k) + center;
+    return pos;
 }
 
-const int MAX_ITERATIONS = 30;
+const int MAX_ITERATIONS = 100;
 float IIS(vec3 pos) {
-    float invNum = 0.;
-
+    int invNum = 0;
     float d;
     for(int i = 0; i < MAX_ITERATIONS; i++) {
         bool inFund = true;
@@ -69,7 +69,6 @@ float IIS(vec3 pos) {
             if(d > 0.) {
                 invNum++;
                 pos -= 2. * d * u_prismPlanes[n].normal;
-                pos += u_prismPlanes[n].origin;
                 inFund = false;
             }
             pos += u_prismPlanes[n].origin;
@@ -77,18 +76,10 @@ float IIS(vec3 pos) {
 
         if(inFund) break;
     }
-    return  invNum;
+    return float(invNum);
 }
 
 void main() {
-    vec3 v = vec3(-2.2,
-                  -0.1,
-                  -2.85788);
-    float n = IIS(vPosition + v);
-     if (n > 0.) {
-         fragment = vec4(Hsv2rgb(-0.13 + n * 0.01, 1., 1.), 1.0);
-     } else {
-         fragment = vec4(vPosition, 1.0);
-     }
-     //    fragment = vec4(vPosition, 1.0);
+    float n = IIS(vPosition + u_bboxMin);
+    fragment = vec4(Hsv2rgb(n * 0.01, 1., 1.), 1.0);
 }
