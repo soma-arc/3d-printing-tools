@@ -126,7 +126,69 @@ public:
             uniLocations.push_back(glGetUniformLocation(program, si.c_str()));
         }
 
+        uniLocations.push_back(glGetUniformLocation(program, "u_numFiniteSpheres"));
+        for (int i = 0; i < finiteSpheres.size(); i++) {
+            si = "u_finiteSpheres["+ std::to_string(i) +"].center";
+            uniLocations.push_back(glGetUniformLocation(program, si.c_str()));
+            si = "u_finiteSpheres["+ std::to_string(i) +"].r";
+            uniLocations.push_back(glGetUniformLocation(program, si.c_str()));
+        }
+
+        si = "u_boundingSphere.center";
+        uniLocations.push_back(glGetUniformLocation(program, si.c_str()));
+        si = "u_boundingSphere.r";
+        uniLocations.push_back(glGetUniformLocation(program, si.c_str()));
+
         uniLocations.push_back(glGetUniformLocation(program, "u_bboxMin"));
+        uniLocations.push_back(glGetUniformLocation(program, "u_isFinite"));
+    }
+
+    void setUniformValues() {
+        int index = 0;
+        glUniform1i(uniLocations[index++], spheres.size());
+        for (int i = 0; i < spheres.size(); i++) {
+            glUniform3f(uniLocations[index++],
+                        spheres[i].center[0],
+                        spheres[i].center[1],
+                        spheres[i].center[2]);
+            glUniform2f(uniLocations[index++],
+                        spheres[i].r,
+                        spheres[i].r * spheres[i].r);
+        }
+
+        glUniform1i(uniLocations[index++], planes.size());
+        for (int i = 0; i < planes.size(); i++) {
+            glUniform3f(uniLocations[index++],
+                        planes[i].origin[0],
+                        planes[i].origin[1],
+                        planes[i].origin[2]);
+            glUniform3f(uniLocations[index++],
+                        planes[i].normal[0],
+                        planes[i].normal[1],
+                        planes[i].normal[2]);
+        }
+
+        glUniform1i(uniLocations[index++], finiteSpheres.size());
+        for (int i = 0; i < finiteSpheres.size(); i++) {
+            glUniform3f(uniLocations[index++],
+                        finiteSpheres[i].center[0],
+                        finiteSpheres[i].center[1],
+                        finiteSpheres[i].center[2]);
+            glUniform2f(uniLocations[index++],
+                        finiteSpheres[i].r,
+                        finiteSpheres[i].r * finiteSpheres[i].r);
+        }
+
+        glUniform3f(uniLocations[index++],
+                    boundingSphere.center[0],
+                    boundingSphere.center[1],
+                    boundingSphere.center[2]);
+        glUniform2f(uniLocations[index++],
+                    boundingSphere.r,
+                    boundingSphere.r * boundingSphere.r);
+
+        glUniform3f(uniLocations[index++], bboxMin[0], bboxMin[1], bboxMin[2]);
+        glUniform1i(uniLocations[index++], false);
     }
 
     int iisInfSphairahedron(Vec3f pos) {
@@ -167,33 +229,6 @@ public:
         return Hsv2rgb((float(invNum) * 0.01), 1., 1.);
     }
 
-    void setUniformValues() {
-        int index = 0;
-        glUniform1i(uniLocations[index++], spheres.size());
-        for (int i = 0; i < spheres.size(); i++) {
-            glUniform3f(uniLocations[index++],
-                        spheres[i].center[0],
-                        spheres[i].center[1],
-                        spheres[i].center[2]);
-            glUniform2f(uniLocations[index++],
-                        spheres[i].r,
-                        spheres[i].r * spheres[i].r);
-        }
-
-        glUniform1i(uniLocations[index++], planes.size());
-        for (int i = 0; i < planes.size(); i++) {
-            glUniform3f(uniLocations[index++],
-                        planes[i].origin[0],
-                        planes[i].origin[1],
-                        planes[i].origin[2]);
-            glUniform3f(uniLocations[index++],
-                        planes[i].normal[0],
-                        planes[i].normal[1],
-                        planes[i].normal[2]);
-        }
-
-        glUniform3f(uniLocations[index++], bboxMin[0], bboxMin[1], bboxMin[2]);
-    }
 private:
     int MAX_IIS_ITER_COUNT = 100;
 };
@@ -481,8 +516,8 @@ int main(int argc, char** argv) {
 
     atexit(glfwTerminate);
 
-    const int windowWidth = 640;
-    const int windowHeight = 640;
+    const int windowWidth = 1024;
+    const int windowHeight = 1024;
 
     /* Create a windowed mode window and its OpenGL context */
     glfwWindowHint(GLFW_CONTEXT_VERSION_MAJOR, 3);

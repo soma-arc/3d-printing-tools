@@ -18,11 +18,12 @@ uniform int u_numPrismSpheres;
 uniform Plane u_prismPlanes[4];
 uniform int u_numPrismPlanes;
 
-// uniform Sphere u_inversionSphere;
-// uniform Sphere u_spheirahedraSpheres[8];
-// uniform int u_numDividePlanes;
-// uniform Plane u_dividePlanes[1];
+uniform Sphere u_boundingSphere;
+uniform Sphere u_finiteSpheres[8];
+uniform int u_numFiniteSpheres;
+
 uniform vec3 u_bboxMin;
+uniform bool u_isFinite;
 
 vec3 Hsv2rgb(float h, float s, float v){
     vec3 c = vec3(h, s, v);
