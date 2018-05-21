@@ -80,7 +80,33 @@ float IIS(vec3 pos) {
     return float(invNum);
 }
 
+float IISFinite(vec3 pos) {
+    int invNum = 0;
+    float d;
+    for(int i = 0; i < MAX_ITERATIONS; i++) {
+        bool inFund = true;
+		for(int n = 0; n < u_numFiniteSpheres; n++) {
+            if(distance(pos, u_finiteSpheres[n].center) < u_finiteSpheres[n].r.x) {
+                invNum++;
+                SphereInvert(pos,
+                             u_finiteSpheres[n].center,
+                             u_finiteSpheres[n].r);
+                inFund = false;
+            }
+		}
+
+        if(inFund) break;
+    }
+    return float(invNum);
+}
+
 void main() {
-    float n = IIS(vPosition + u_bboxMin);
+    float n;
+    if (u_isFinite) {
+        vec3 bboxMin = u_boundingSphere.center - vec3(u_boundingSphere.r.x) * 1.1;
+        n = IISFinite(vPosition + bboxMin);
+    } else {
+        n = IIS(vPosition + u_bboxMin);
+    }
     fragment = vec4(Hsv2rgb(n * 0.01, 1., 1.), 1.0);
 }

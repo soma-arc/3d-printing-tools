@@ -143,7 +143,7 @@ public:
         uniLocations.push_back(glGetUniformLocation(program, "u_isFinite"));
     }
 
-    void setUniformValues() {
+    void setUniformValues(bool isFinite) {
         int index = 0;
         glUniform1i(uniLocations[index++], spheres.size());
         for (int i = 0; i < spheres.size(); i++) {
@@ -188,7 +188,7 @@ public:
                     boundingSphere.r * boundingSphere.r);
 
         glUniform3f(uniLocations[index++], bboxMin[0], bboxMin[1], bboxMin[2]);
-        glUniform1i(uniLocations[index++], false);
+        glUniform1i(uniLocations[index++], isFinite);
     }
 
     int iisInfSphairahedron(Vec3f pos) {
@@ -468,7 +468,6 @@ std::vector<Object::Vertex> LoadObj(std::string objFilename,
 
 int main(int argc, char** argv) {
     args::ArgumentParser parser("Generate mesh.");
-    args::ValueFlag<float> sliceStep(parser, "step", "slice step", {'s', "sliceStep"}, 0.01f);
     args::ValueFlag<std::string> inputObj(parser, "obj", "Input obj file",
                                           {'i', "input"}, "scene.obj");
     args::ValueFlag<std::string> inputJson(parser, "json", "Input json file",
@@ -476,6 +475,9 @@ int main(int argc, char** argv) {
     args::ValueFlag<std::string> outputBasenameArg(parser, "outputBasename",
                                                    "Base name of output files (.png)",
                                                    {'o', "out"}, "texture");
+    args::ValueFlag<int> sizeArg(parser, "textureSize",
+                                 "texture size (1024)",
+                                 {'s', "size"}, 1024);
     args::Flag isFinite(parser, "isFinite", "Generate finite limit set", {'f', "finite"});
     args::HelpFlag help(parser, "help", "Display this help menu", {'h', "help"});
 
@@ -516,8 +518,8 @@ int main(int argc, char** argv) {
 
     atexit(glfwTerminate);
 
-    const int windowWidth = 1024;
-    const int windowHeight = 1024;
+    int windowWidth = args::get(sizeArg);
+    int windowHeight = args::get(sizeArg);
 
     /* Create a windowed mode window and its OpenGL context */
     glfwWindowHint(GLFW_CONTEXT_VERSION_MAJOR, 3);
@@ -584,7 +586,7 @@ int main(int argc, char** argv) {
                                                  &vertexList[0]));
 
     sphairahedron.getUniLocations(prog_id);
-    sphairahedron.setUniformValues();
+    sphairahedron.setUniformValues(isFinite);
 
     /* Loop until the user closes the window */
     while (!glfwWindowShouldClose(window))
