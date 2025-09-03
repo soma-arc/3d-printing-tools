@@ -1,59 +1,36 @@
-newoption {
-   trigger = "openvdb-path",
-   description = "Path to OpenVDB 4.0+ library"
-}
+-- premake5.lua — minimal, system-installed OpenVDB + TBB only
 
-newoption {
-   trigger = "tbb-path",
-   description = "Path to Intel TBB library"
-}
+workspace "GenMesh"
+  configurations { "Debug", "Release" }
+  location "build"
 
-sources = {
-   "src/main.cpp",
-}
+project "GenMesh"
+  kind "ConsoleApp"
+  language "C++"
+  cppdialect "C++17"            -- 必要なら "C++20" に変更可
+  targetdir ("%{wks.location}/%{cfg.buildcfg}/bin")
+  objdir    ("%{wks.location}/%{cfg.buildcfg}/obj")
 
--- premake5.lua
-workspace "GenMeshWorkspace"
-   configurations { "Release", "Debug" }
+  files {
+    "src/**.cpp",
+    "include/**.hpp"
+  }
+  includedirs { "include" }
 
-   platforms { "native", "x64", "x32" }
+  filter "system:linux"
+    links { "openvdb", "tbb" }  -- 余計な手動リンクはしない（最小）
+    buildoptions { "-Wall", "-Wextra" }
+    defines { "TINYGLTF_NO_STB_IMAGE", "TINYGLTF_NO_STB_IMAGE_WRITE" }
 
-   -- Use c++11
-   flags { "c++11" }
+    -- 実行時に /usr/local/lib などが必要なら rpath を“任意で”付与:
+    -- linkoptions { "-Wl,-rpath,/usr/local/lib" }
 
-   includedirs { "./include" }
+  filter "configurations:Debug"
+    symbols "On"
+    defines { "DEBUG" }
 
-   includedirs { "./src" }
+  filter "configurations:Release"
+    optimize "Speed"
+    defines { "NDEBUG" }
 
-   -- A project defines one build target
-   project "GenMesh"
-      kind "ConsoleApp"
-      language "C++"
-      files { sources }
-
-      if os.is("Linux") then
-         -- TBB
-         if _OPTIONS["tbb-path"] then
-            includedirs { _OPTIONS["tbb-path"] .. "include" }
-            libdirs { _OPTIONS["tbb-path"] .. "lib" }
-         end
-        
-         -- OpenVDB
-         includedirs { _OPTIONS["openvdb-path"] .. "/include/" }
-         libdirs { _OPTIONS["openvdb-path"] .. "/lib/" }
-         links { "openvdb" }
-
-         buildoptions { "-Wall", "-Wextra", "-Werror" }
-         links {"pthread", "dl", "Half", "tbb", "boost_iostreams"}
-      end
-
-      configuration "Debug"
-         defines { "DEBUG" } -- -DDEBUG
-         symbols "On"
-         targetname "genMesh_debug"
-
-      configuration "Release"
-         -- defines { "NDEBUG" } -- -NDEBUG
-         symbols "On"
-         flags { "Optimize" }
-         targetname "genMesh"
+  filter {}

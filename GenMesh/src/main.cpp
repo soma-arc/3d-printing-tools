@@ -3,7 +3,11 @@
 #include <openvdb/tools/LevelSetFilter.h>
 #include <openvdb/tools/ParticlesToLevelSet.h>
 #include "args.hxx"
-#include "nlohmann/json.hpp"
+#include "json.hpp"
+#define TINYGLTF_NO_STB_IMAGE
+#define TINYGLTF_NO_STB_IMAGE_WRITE
+#define TINYGLTF_IMPLEMENTATION
+#include "tiny_gltf.h"
 
 #include <fstream>
 #include <iostream>
@@ -11,6 +15,7 @@
 #include <cmath>
 #include <limits>
 #include <regex>
+#include <cstdint>
 
 std::vector<std::string> split(std::string&& s, std::regex&& pattern) {
     std::sregex_token_iterator first(s.begin(), s.end(), pattern, -1);
@@ -361,6 +366,192 @@ public:
     const int MAX_IIS_ITER_COUNT = 10000;
 };
 
+bool writeGlb(
+    const std::string& basename,
+    const std::vector<openvdb::Vec3s>& points,
+    const std::vector<openvdb::Vec3s>& normals,
+    const std::vector<openvdb::Vec4I>& quads,
+    const std::vector<openvdb::Vec3I>& triangles)
+{
+    std::cout << "\nWriting \"" << basename << ".glb\" to file\n";
+
+    // Prepare buffers
+    std::vector<float> pos;
+    pos.reserve(points.size() * 3);
+    for (const auto& p : points) {
+        pos.push_back(p.x()); pos.push_back(p.y()); pos.push_back(p.z());
+    }
+
+    std::vector<float> nor;
+    bool hasNormals = !normals.empty();
+    if (hasNormals) {
+        nor.reserve(normals.size() * 3);
+        for (const auto& n : normals) {
+            nor.push_back(n.x()); nor.push_back(n.y()); nor.push_back(n.z());
+        }
+    }
+
+    std::vector<uint32_t> idx;
+    idx.reserve(triangles.size() * 3 + quads.size() * 6);
+    for (const auto& t : triangles) {
+        idx.push_back(static_cast<uint32_t>(t.x()));
+        idx.push_back(static_cast<uint32_t>(t.y()));
+        idx.push_back(static_cast<uint32_t>(t.z()));
+    }
+    for (const auto& q : quads) {
+        // (x,y,z) (x,z,w)
+        uint32_t x = static_cast<uint32_t>(q.x());
+        uint32_t y = static_cast<uint32_t>(q.y());
+        uint32_t z = static_cast<uint32_t>(q.z());
+        uint32_t w = static_cast<uint32_t>(q.w());
+        idx.push_back(x); idx.push_back(y); idx.push_back(z);
+        idx.push_back(x); idx.push_back(z); idx.push_back(w);
+    }
+
+    // Build glTF model
+    tinygltf::Model model;
+    tinygltf::Buffer buffer;
+    buffer.name = "buffer0";
+
+    auto appendBytes = [&](const void* data, size_t bytes) -> size_t {
+        size_t off = buffer.data.size();
+        buffer.data.resize(off + bytes);
+        std::memcpy(buffer.data.data() + off, data, bytes);
+        return off;
+    };
+
+    // Helper for 4-byte alignment
+    auto align4 = [&]() {
+        while (buffer.data.size() % 4 != 0) buffer.data.push_back(0);
+    };
+
+    // Positions
+    size_t posOffset = appendBytes(pos.data(), pos.size() * sizeof(float));
+    align4();
+    // Normals (optional)
+    size_t norOffset = 0;
+    if (hasNormals) {
+        norOffset = appendBytes(nor.data(), nor.size() * sizeof(float));
+        align4();
+    }
+    // Indices
+    size_t idxOffset = appendBytes(idx.data(), idx.size() * sizeof(uint32_t));
+    align4();
+
+    model.buffers.push_back(std::move(buffer));
+
+    // BufferViews
+    int posBV = model.bufferViews.size();
+    tinygltf::BufferView bvPos;
+    bvPos.buffer = 0; bvPos.byteOffset = static_cast<size_t>(posOffset);
+    bvPos.byteLength = pos.size() * sizeof(float);
+    bvPos.target = 34962; // ARRAY_BUFFER
+    model.bufferViews.push_back(bvPos);
+
+    int norBV = -1;
+    if (hasNormals) {
+        norBV = model.bufferViews.size();
+        tinygltf::BufferView bvNor;
+        bvNor.buffer = 0; bvNor.byteOffset = static_cast<size_t>(norOffset);
+        bvNor.byteLength = nor.size() * sizeof(float);
+        bvNor.target = 34962; // ARRAY_BUFFER
+        model.bufferViews.push_back(bvNor);
+    }
+
+    int idxBV = model.bufferViews.size();
+    tinygltf::BufferView bvIdx;
+    bvIdx.buffer = 0; bvIdx.byteOffset = static_cast<size_t>(idxOffset);
+    bvIdx.byteLength = idx.size() * sizeof(uint32_t);
+    bvIdx.target = 34963; // ELEMENT_ARRAY_BUFFER
+    model.bufferViews.push_back(bvIdx);
+
+    // Accessors
+    // POSITION
+    int posAcc = model.accessors.size();
+    tinygltf::Accessor accPos;
+    accPos.bufferView = posBV;
+    accPos.byteOffset = 0;
+    accPos.componentType = TINYGLTF_COMPONENT_TYPE_FLOAT;
+    accPos.count = points.size();
+    accPos.type = TINYGLTF_TYPE_VEC3;
+    // compute min/max
+    if (!points.empty()) {
+        std::array<double,3> mn{points[0].x(), points[0].y(), points[0].z()};
+        std::array<double,3> mx{points[0].x(), points[0].y(), points[0].z()};
+        for (const auto& p : points) {
+            mn[0] = std::min<double>(mn[0], p.x());
+            mn[1] = std::min<double>(mn[1], p.y());
+            mn[2] = std::min<double>(mn[2], p.z());
+            mx[0] = std::max<double>(mx[0], p.x());
+            mx[1] = std::max<double>(mx[1], p.y());
+            mx[2] = std::max<double>(mx[2], p.z());
+        }
+        accPos.minValues = {mn[0], mn[1], mn[2]};
+        accPos.maxValues = {mx[0], mx[1], mx[2]};
+    }
+    model.accessors.push_back(accPos);
+
+    // NORMAL (optional)
+    int norAcc = -1;
+    if (hasNormals) {
+        norAcc = model.accessors.size();
+        tinygltf::Accessor accNor;
+        accNor.bufferView = norBV;
+        accNor.byteOffset = 0;
+        accNor.componentType = TINYGLTF_COMPONENT_TYPE_FLOAT;
+        accNor.count = normals.size();
+        accNor.type = TINYGLTF_TYPE_VEC3;
+        model.accessors.push_back(accNor);
+    }
+
+    // INDICES
+    int idxAcc = model.accessors.size();
+    tinygltf::Accessor accIdx;
+    accIdx.bufferView = idxBV;
+    accIdx.byteOffset = 0;
+    accIdx.componentType = TINYGLTF_COMPONENT_TYPE_UNSIGNED_INT;
+    accIdx.count = idx.size();
+    accIdx.type = TINYGLTF_TYPE_SCALAR;
+    model.accessors.push_back(accIdx);
+
+    // Mesh primitive
+    tinygltf::Primitive prim;
+    prim.mode = TINYGLTF_MODE_TRIANGLES;
+    prim.indices = idxAcc;
+    prim.attributes["POSITION"] = posAcc;
+    if (hasNormals) prim.attributes["NORMAL"] = norAcc;
+
+    tinygltf::Mesh mesh;
+    mesh.primitives.push_back(prim);
+    int meshIndex = model.meshes.size();
+    model.meshes.push_back(mesh);
+
+    // Node
+    tinygltf::Node node;
+    node.mesh = meshIndex;
+    int nodeIndex = model.nodes.size();
+    model.nodes.push_back(node);
+
+    // Scene
+    tinygltf::Scene scene;
+    scene.nodes = { nodeIndex };
+    int sceneIndex = model.scenes.size();
+    model.scenes.push_back(scene);
+    model.defaultScene = sceneIndex;
+
+    // Write GLB
+    tinygltf::TinyGLTF gltf;
+    std::string err, warn;
+    bool ok = gltf.WriteGltfSceneToFile(&model, basename + ".glb",
+                                        /*embedImages*/true,
+                                        /*embedBuffers*/true,
+                                        /*prettyPrint*/false,
+                                        /*writeBinary*/true);
+    if (!warn.empty()) std::cerr << "tinygltf warn: " << warn << std::endl;
+    if (!ok) std::cerr << "tinygltf error: " << err << std::endl;
+    return ok;
+}
+
 void writeObj(
     std::string fileName, std::vector<openvdb::Vec3s>& points,
     std::vector<openvdb::Vec3s>& normals,
@@ -634,7 +825,8 @@ smoothLevelSet(GridType& grid, int iterations, int halfBandWidthInVoxels, Interr
 }
 
 void makeMesh(Sphairahedron sphairahedron, std::string outputBasename,
-              Vec3f sliceStep, int smoothIterations, bool isFinite) {
+              Vec3f sliceStep, int smoothIterations, bool isFinite,
+              bool exportObj, bool exportVdb) {
     bool flipNormal = false;
     bool enableAdaptiveMeshing = false;
     float adaptivity = 0.0f;
@@ -668,8 +860,10 @@ void makeMesh(Sphairahedron sphairahedron, std::string outputBasename,
 
     std::vector<openvdb::Vec3s> normals = computeNormals(grid, points, flipNormal);
 
-    writeGrid(grid, outputBasename);
-    writeObj(outputBasename, points, normals, quads, triangles);
+    // Default: write GLB
+    writeGlb(outputBasename, points, normals, quads, triangles);
+    if (exportVdb) writeGrid(grid, outputBasename);
+    if (exportObj) writeObj(outputBasename, points, normals, quads, triangles);
 }
 
 Sphairahedron createSphairahedronFromJson(nlohmann::json jsonObj) {
@@ -761,11 +955,13 @@ int main(int argc, char** argv) {
     args::ValueFlag<float> sliceStep(parser, "step", "slice step", {'s', "sliceStep"}, 0.01f);
     args::ValueFlag<std::string> inputJson(parser, "input", "Input json file",
                                            {'i', "input"}, "scene.json");
-    args::ValueFlag<std::string> outputBasenameArg(parser, "outputBasename", "Base name of output files (.vdb, .obj)",
+    args::ValueFlag<std::string> outputBasenameArg(parser, "outputBasename", "Base name of output files (.glb; add --obj/--vdb for extras)",
                                                    {'o', "out"});
     args::ValueFlag<int> smoothIterations(parser, "smoothIterations", "Iterations of smoothing",
                                           {"smooth"}, 0);
     args::Flag isFinite(parser, "isFinite", "Generate finite limit set", {'f', "finite"});
+    args::Flag exportObj(parser, "obj", "Export OBJ additionally", {"obj"});
+    args::Flag exportVdb(parser, "vdb", "Export VDB additionally", {"vdb"});
     args::HelpFlag help(parser, "help", "Display this help menu", {'h', "help"});
 
     try {
@@ -807,5 +1003,6 @@ int main(int argc, char** argv) {
     std::cout << "slice step: " << args::get(sliceStep) << std::endl;
     std::cout << "smooth iterations: " << args::get(smoothIterations) << std::endl;
     Sphairahedron s = createSphairahedronFromJson(jsonObj);
-    makeMesh(s, outputBasename, Vec3f(args::get(sliceStep)), args::get(smoothIterations), isFinite);
+    makeMesh(s, outputBasename, Vec3f(args::get(sliceStep)), args::get(smoothIterations), isFinite,
+             exportObj, exportVdb);
 }

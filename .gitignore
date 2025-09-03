@@ -35,3 +35,4 @@ Makefile
 *.exe
 *.out
 *.app
+**/build
